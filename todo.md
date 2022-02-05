@@ -4,3 +4,6 @@ Ideas:
     this format
   - try to make playlists generic, such that smart algorithms/AI can generate
     playlists/analyze tracks somehow
+  - save track information/playlists etc in some intermediate open format, which
+    can be stored in git and is human readable and can be exported as rekordbox
+    database
