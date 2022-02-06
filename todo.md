@@ -8,11 +8,12 @@ Ideas:
     can be stored in git and is human readable and can be exported as rekordbox
     database
   - analyze and edit track bpm, grid, pitch and key.
+  - drop detection (https://musicmachinery.com/2015/06/16/the-drop-machine/)
 
 Libs:
   - Serialization/Deserialization: 
     * [Bincode](https://github.com/bincode-org/bincode), since Kaitai doesn't support serialization yet, we're bound to a rust native solution
-    * [Kaitai](https://kaitai.io/#what-is-it) for serializing rekordbox file formats. There are also [Kaitai rust bindings]( https://github.com/kaitai-io/kaitai_struct_rust_runtime)
+    * [Kaitai](https://kaitai.io/#what-is-it) for serializing rekordbox file formats. There are also [Kaitai rust bindings]( https://github.com/kaitai-io/kaitai_struct_rust_runtime) and a [Kaitai-like serialization crate](https://github.com/manuels/taikai), but these seem to be outdated.
   - Audio Analysis
     * [Aubio](https://docs.rs/aubio/latest/aubio/) for BPM, Beatgrid, Onset-detection and more
   - TUI 
