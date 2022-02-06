@@ -1,4 +1,4 @@
-Ideas:
+# Ideas
   - TUI with vim bindings, wave form and overview of tracks/playlists/crates 
   - export: export data in rekordbox format, since all major players support
     this format
@@ -10,18 +10,21 @@ Ideas:
   - analyze and edit track bpm, grid, pitch and key.
   - drop detection (https://musicmachinery.com/2015/06/16/the-drop-machine/)
 
-Libs:
-  - Serialization/Deserialization: 
-    * [Bincode](https://github.com/bincode-org/bincode), since Kaitai doesn't support serialization yet, we're bound to a rust native solution
-    * [Kaitai](https://kaitai.io/#what-is-it) for serializing rekordbox file formats. There are also [Kaitai rust bindings]( https://github.com/kaitai-io/kaitai_struct_rust_runtime) and a [Kaitai-like serialization crate](https://github.com/manuels/taikai), but these seem to be outdated.
-  - Audio Analysis
-    * [Aubio](https://docs.rs/aubio/latest/aubio/) for BPM, Beatgrid, Onset-detection and more
-  - TUI 
-    * [tui-rs](https://github.com/fdehau/tui-rs) for genereal TUI implementation
-    * [live preview of wave audio form](https://github.com/jeffvandyke/rust-tui-audio) for tui-rs
-  - Playlists/Crates
-    * [ Bliss ] https://rustrepo.com/repo/Polochon-street-bliss-rs-rust-audio-and-music for smart playlists
+# Libs
+## Serialization/Deserialization 
+  - [Bincode](https://github.com/bincode-org/bincode), since Kaitai doesn't support serialization yet, we're bound to a rust native solution
+  - [Kaitai](https://kaitai.io/#what-is-it) for serializing rekordbox file formats. There are also [Kaitai rust bindings]( https://github.com/kaitai-io/kaitai_struct_rust_runtime) and a [Kaitai-like serialization crate](https://github.com/manuels/taikai), but these seem to be outdated.
+## Audio Analysis
+  - [Aubio](https://docs.rs/aubio/latest/aubio/) for BPM, Beatgrid, Onset-detection and more
+## TUI 
+  - [tui-rs](https://github.com/fdehau/tui-rs) for genereal TUI implementation
+  - [live preview of wave audio form](https://github.com/jeffvandyke/rust-tui-audio) for tui-rs
+## Playlists/Crates
+  - [Bliss] https://rustrepo.com/repo/Polochon-street-bliss-rs-rust-audio-and-music for smart playlists
 
-Further links:
-  - Rekordbox file formats
-    * [Kaitai rekordbox database format](https://github.com/Deep-Symmetry/crate-digger/blob/main/src/main/kaitai/rekordbox_pdb.ksy), more info [here](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html)
+# Further links
+## Rekordbox file formats
+  - [Kaitai rekordbox database format](https://github.com/Deep-Symmetry/crate-digger/blob/main/src/main/kaitai/rekordbox_pdb.ksy), more info [here](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/exports.html)
+
+# Current Problems
+  - Kaitai doesnt support serialization, also the rust bindings are not available in cargo, nor do they seem to be maintained very well.
