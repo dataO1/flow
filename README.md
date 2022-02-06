@@ -14,6 +14,7 @@
 ## Serialization/Deserialization 
   - [Bincode](https://github.com/bincode-org/bincode), since Kaitai doesn't support serialization yet, we're bound to a rust native solution
   - [Kaitai](https://kaitai.io/#what-is-it) for serializing rekordbox file formats. There are also [Kaitai rust bindings]( https://github.com/kaitai-io/kaitai_struct_rust_runtime) and a [Kaitai-like serialization crate](https://github.com/manuels/taikai), but these seem to be outdated.
+  - [rekordcrate](https://github.com/Holzhaus/rekordcrate) -> This looks the most promising of a solution!
 ## Audio Analysis
   - [Aubio](https://docs.rs/aubio/latest/aubio/) for BPM, Beatgrid, Onset-detection and more
 ## TUI 
