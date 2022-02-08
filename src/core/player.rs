@@ -18,8 +18,7 @@ pub enum Message {
 
 #[derive(Clone, Debug)]
 pub enum Command {
-    PlayerStart,
-    PlayerStop,
+    TogglePlay,
     Unknown,
 }
 
@@ -45,11 +44,11 @@ impl Player {
     //     Player { reader, rx, tx }
     // }
 
-    pub async fn init(file_path: &str) -> Sender<()> {
+    pub async fn init(file_path: &str) -> Sender<Message> {
         // Store the track identifier, it will be used to filter packets.
         // let track_id = track.id;
         let mut reader = new_reader(file_path);
-        let (tx, rx) = channel::<()>(1000);
+        let (tx, rx) = channel::<Message>(1000);
         tokio::spawn(async move {
             let _res = Player::play_file(&mut reader, rx, None).await;
         });
@@ -61,7 +60,7 @@ impl Player {
     //------------------------------------------------------------------//
     async fn play_file(
         reader: &mut Box<dyn FormatReader>,
-        mut rx: Receiver<()>,
+        mut rx: Receiver<Message>,
         seek_time: Option<f64>,
     ) -> Result<()> {
         // Use the default options for the decoder.
