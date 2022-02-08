@@ -8,6 +8,8 @@ pkgs.mkShell {
     rustfmt
     rustPackages.clippy
     # cargo-web
-    # pkg-config
+    alsa-lib
+    pkg-config
+    libpulseaudio
   ];
 }
