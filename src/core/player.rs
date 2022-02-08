@@ -40,22 +40,30 @@ impl Player {
     //                          Public Methods                          //
     //------------------------------------------------------------------//
 
-    pub fn new(file_path: &str) -> Player {
-        let (tx, rx) = channel::<Message>(100);
-        let reader = new_reader(file_path);
-        Player { reader, rx, tx }
-    }
+    // pub fn new(file_path: &str) -> Player {
+    //     let (tx, rx) = channel::<Message>(100);
+    //     Player { reader, rx, tx }
+    // }
 
-    pub fn toggle_play(reader: &mut Box<dyn FormatReader>) {
+    pub async fn init(file_path: &str) -> Sender<()> {
         // Store the track identifier, it will be used to filter packets.
         // let track_id = track.id;
-        let _res = Player::play_file(reader, None);
+        let mut reader = new_reader(file_path);
+        let (tx, rx) = channel::<()>(1000);
+        tokio::spawn(async move {
+            let _res = Player::play_file(&mut reader, rx, None).await;
+        });
+        tx
     }
 
     //------------------------------------------------------------------//
     //                         Private methods                          //
     //------------------------------------------------------------------//
-    fn play_file(reader: &mut Box<dyn FormatReader>, seek_time: Option<f64>) -> Result<()> {
+    async fn play_file(
+        reader: &mut Box<dyn FormatReader>,
+        mut rx: Receiver<()>,
+        seek_time: Option<f64>,
+    ) -> Result<()> {
         // Use the default options for the decoder.
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: true,
@@ -106,25 +114,34 @@ impl Player {
         let mut audio_output = None;
 
         let mut track_info = PlayTrackOptions { track_id, seek_ts };
-
+        let mut playing = false;
         let result = loop {
-            match Player::play_track(reader, &mut audio_output, track_info, &dec_opts) {
-                Err(Error::ResetRequired) => {
-                    // The demuxer indicated that a reset is required. This is sometimes seen with
-                    // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
-                    // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
-                    // recreate the decoder.
-                    // print_tracks(self.reader.tracks());
-
-                    // Select the first supported track since the user's selected track number might no
-                    // longer be valid or make sense.
-                    let track_id = first_supported_track(reader.tracks()).unwrap().id;
-                    track_info = PlayTrackOptions {
-                        track_id,
-                        seek_ts: 0,
-                    };
+            match rx.try_recv() {
+                Ok(_) => {
+                    println!("toggle play");
+                    playing ^= true
                 }
-                res => break res,
+                Err(_) => (),
+            }
+            if playing {
+                match Player::play_track(reader, &mut audio_output, track_info, &dec_opts) {
+                    Err(Error::ResetRequired) => {
+                        // The demuxer indicated that a reset is required. This is sometimes seen with
+                        // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
+                        // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
+                        // recreate the decoder.
+                        // print_tracks(self.reader.tracks());
+
+                        // Select the first supported track since the user's selected track number might no
+                        // longer be valid or make sense.
+                        let track_id = first_supported_track(reader.tracks()).unwrap().id;
+                        track_info = PlayTrackOptions {
+                            track_id,
+                            seek_ts: 0,
+                        };
+                    }
+                    res => break res,
+                }
             }
         };
 
@@ -158,10 +175,10 @@ impl Player {
 
         // Get the selected track's timebase and duration.
         let _tb = track.codec_params.time_base;
-        let dur = track
-            .codec_params
-            .n_frames
-            .map(|frames| track.codec_params.start_ts + frames);
+        // let dur = track
+        //     .codec_params
+        //     .n_frames
+        //     .map(|frames| track.codec_params.start_ts + frames);
 
         // Decode and play the packets belonging to the selected track.
         let result = loop {
@@ -180,9 +197,9 @@ impl Player {
             while !reader.metadata().is_latest() {
                 reader.metadata().pop();
 
-                if let Some(rev) = reader.metadata().current() {
-                    // print_update(rev);
-                }
+                // if let Some(rev) = reader.metadata().current() {
+                //     // print_update(rev);
+                // }
             }
 
             // Decode the packet into audio samples.
