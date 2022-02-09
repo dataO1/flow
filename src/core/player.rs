@@ -48,9 +48,9 @@ impl Player {
         // Store the track identifier, it will be used to filter packets.
         // let track_id = track.id;
         let mut reader = new_reader(file_path);
-        let (tx, rx) = channel::<Message>(1000);
+        let (tx, mut rx) = channel::<Message>(1000);
         tokio::spawn(async move {
-            let _res = Player::play_file(&mut reader, rx, None).await;
+            let _res = Player::play_file(&mut reader, &mut rx, None).await;
         });
         tx
     }
@@ -60,7 +60,7 @@ impl Player {
     //------------------------------------------------------------------//
     async fn play_file(
         reader: &mut Box<dyn FormatReader>,
-        mut rx: Receiver<Message>,
+        rx: &mut Receiver<Message>,
         seek_time: Option<f64>,
     ) -> Result<()> {
         // Use the default options for the decoder.
@@ -113,34 +113,24 @@ impl Player {
         let mut audio_output = None;
 
         let mut track_info = PlayTrackOptions { track_id, seek_ts };
-        let mut playing = false;
         let result = loop {
-            match rx.try_recv() {
-                Ok(_) => {
-                    println!("toggle play");
-                    playing ^= true
-                }
-                Err(_) => (),
-            }
-            if playing {
-                match Player::play_track(reader, &mut audio_output, track_info, &dec_opts) {
-                    Err(Error::ResetRequired) => {
-                        // The demuxer indicated that a reset is required. This is sometimes seen with
-                        // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
-                        // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
-                        // recreate the decoder.
-                        // print_tracks(self.reader.tracks());
+            match Player::play_track(reader, rx, &mut audio_output, track_info, &dec_opts) {
+                Err(Error::ResetRequired) => {
+                    // The demuxer indicated that a reset is required. This is sometimes seen with
+                    // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
+                    // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
+                    // recreate the decoder.
+                    // print_tracks(self.reader.tracks());
 
-                        // Select the first supported track since the user's selected track number might no
-                        // longer be valid or make sense.
-                        let track_id = first_supported_track(reader.tracks()).unwrap().id;
-                        track_info = PlayTrackOptions {
-                            track_id,
-                            seek_ts: 0,
-                        };
-                    }
-                    res => break res,
+                    // Select the first supported track since the user's selected track number might no
+                    // longer be valid or make sense.
+                    let track_id = first_supported_track(reader.tracks()).unwrap().id;
+                    track_info = PlayTrackOptions {
+                        track_id,
+                        seek_ts: 0,
+                    };
                 }
+                res => break res,
             }
         };
 
@@ -154,6 +144,7 @@ impl Player {
 
     fn play_track(
         reader: &mut Box<dyn FormatReader>,
+        rx: &mut Receiver<Message>,
         audio_output: &mut Option<Box<dyn crate::core::output::AudioOutput>>,
         play_opts: PlayTrackOptions,
         decode_opts: &DecoderOptions,
@@ -180,7 +171,18 @@ impl Player {
         //     .map(|frames| track.codec_params.start_ts + frames);
 
         // Decode and play the packets belonging to the selected track.
+        let mut playing = true;
         let result = loop {
+            match rx.try_recv() {
+                Ok(_) => {
+                    println!("toggle play");
+                    playing ^= true
+                }
+                Err(_) => (),
+            }
+            if !playing {
+                continue;
+            }
             // Get the next packet from the format reader.
             let packet = match reader.next_packet() {
                 Ok(packet) => packet,
