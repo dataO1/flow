@@ -50,8 +50,6 @@ struct PlayerState {
     loaded: Option<String>,
     // is player playing right now
     playing: bool,
-    // loaded @Track instance
-    track: Option<Track>,
 }
 
 impl Default for PlayerState {
@@ -59,7 +57,6 @@ impl Default for PlayerState {
         PlayerState {
             loaded: None,
             playing: false,
-            track: None,
         }
     }
 }
