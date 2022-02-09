@@ -1,23 +1,23 @@
 # Current State and TODO
-  - UI: 
-    * [ ] Overview Wave Form
-    * [ ] Live Wave Form
-    * [ ] Playlists View
-Do we use [tui-rs](https://github.com/fdehau/tui-rs) or the more high-level, Elm-like [tui-realm]( https://github.com/veeso/tui-realm ) as a framework, which builds upon `tui-rs` 
-  - Player:
+  - UI ([tui-realm]( https://github.com/veeso/tui-realm ) or [tui-rs](https://github.com/fdehau/tui-rs)) 
+    * [ ] Prototype/Mockup
+    * [ ] Wavfeorm - Overview
+    * [ ] Waveform - Live
+    * [ ] Playlists Editor
+  - Player ([Symphonia](https://crates.io/crates/symphonia))
     * [x] Async Event handling
     * [x] Play/Pause
     * [ ] Seeking
     * [ ] Cue
   - Track Analysis
-    * [ ] BPM Detection
-    * [ ] Beatgrid Detection
+    * [ ] BPM Detection (Aubio)
+    * [ ] Beatgrid Detection (Aubio)
     * [ ] Creating cue points
     * [ ] Storing results in a mobile database
       *  which DB to use?
   - Rekordbox
     * [ ] Converting internal structure into [rekordcrate's](https://github.com/Holzhaus/rekordcrate) structure
-    * [ ] Storing information
+    * [ ] Exporting data
 
 # Ideas
   - TUI with vim bindings, wave form and overview of tracks/playlists/crates 
