@@ -1,8 +1,10 @@
+use flow::core::player::{Command, Message, Player};
+extern crate crossterm;
+
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::enable_raw_mode,
 };
-use flow::core::player::{Command, Message, Player};
 
 use tokio::sync::mpsc::Sender;
 

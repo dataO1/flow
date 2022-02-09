@@ -1,5 +1,4 @@
-pub mod output;
-
+use crate::core::output;
 use log::warn;
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::{Error, Result};
@@ -127,7 +126,7 @@ impl Player {
             if let (Some(r), Some(p_opts), Some(dec)) = (&mut reader, &mut play_opts, &mut decoder)
             {
                 if player_state.playing {
-                    Player::play_packet(r, &mut audio_output, p_opts, dec).unwrap();
+                    Player::play_sample(r, &mut audio_output, p_opts, dec).unwrap();
                 }
             };
         }
@@ -226,9 +225,44 @@ impl Player {
         }
     }
 
-    fn play_packet(
+    // // TODO: refactor
+    // async fn play_file(
+    //     reader: &mut Box<dyn FormatReader>,
+    //     rx: &mut Receiver<Message>,
+    //     seek_time: Option<f64>,
+    // ) -> Result<()> {
+    //     let result = loop {
+    //         match Player::play_sample(reader, rx, track_info, &dec_opts) {
+    //             Err(Error::ResetRequired) => {
+    //                 // The demuxer indicated that a reset is required. This is sometimes seen with
+    //                 // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
+    //                 // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
+    //                 // recreate the decoder.
+    //                 // print_tracks(self.reader.tracks());
+    //
+    //                 // Select the first supported track since the user's selected track number might no
+    //                 // longer be valid or make sense.
+    //                 let track_id = Player::first_supported_track(reader.tracks()).unwrap().id;
+    //                 track_info = PlayTrackOptions {
+    //                     track_id,
+    //                     seek_ts: 0,
+    //                 };
+    //             }
+    //             res => break res,
+    //         }
+    //     };
+    //
+    //     // Flush the audio output to finish playing back any leftover samples.
+    //     if let Some(audio_output) = audio_output.as_mut() {
+    //         audio_output.flush()
+    //     }
+    //
+    //     result
+    // }
+
+    fn play_sample(
         reader: &mut Box<dyn FormatReader>,
-        audio_output: &mut Option<Box<dyn output::AudioOutput>>,
+        audio_output: &mut Option<Box<dyn crate::core::output::AudioOutput>>,
         play_opts: &mut PlayTrackOptions,
         decoder: &mut Box<dyn Decoder>,
     ) -> Result<()> {
