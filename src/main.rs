@@ -10,7 +10,13 @@ use tokio::sync::mpsc::Sender;
 
 #[tokio::main]
 async fn main() {
-    let player_channel = Player::init("music/bass_symptom.mp3").await;
+    let player_channel = Player::spawn().await;
+    player_channel
+        .send(Message::Command(Command::Load(String::from(
+            "music/bass_symptom.mp3",
+        ))))
+        .await
+        .unwrap();
     // tokio::spawn(async move {
     //     println!("listener process spawned");
     //     match rx.recv().await {
@@ -43,7 +49,6 @@ async fn input(player: Sender<Message>) {
                 code: KeyCode::Char(' '),
                 modifiers: KeyModifiers::NONE,
             }) => {
-                println!("Sending PlayerStart Command");
                 player
                     .send(Message::Command(Command::TogglePlay))
                     .await
@@ -54,6 +59,7 @@ async fn input(player: Sender<Message>) {
                 modifiers: KeyModifiers::CONTROL,
             }) => {
                 println!("exit");
+                player.send(Message::Command(Command::Close)).await.unwrap();
                 break;
             }
             _ => print!(""),

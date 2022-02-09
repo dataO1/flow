@@ -18,20 +18,50 @@ pub enum Message {
 
 #[derive(Clone, Debug)]
 pub enum Command {
+    // Load a new file
+    Load(String),
+    // Toggle playback
     TogglePlay,
-    Unknown,
+    // Stop playback and return to beginning of the track
+    Stop,
+    // Start playing in "Cue" mode (on CueStop the player resumes to the point of the track, where
+    // Cue got invoked)
+    Cue,
+    // Stop playback and resume to start of Cue
+    CueStop,
+    // Close the player
+    Close,
 }
 
 #[derive(Clone, Debug)]
 pub enum Response {
-    PlayerStarted,
-    PlayerStopped,
+    Started,
+    Stopped,
 }
 
 pub struct Player {
-    pub reader: Box<dyn FormatReader>,
-    pub rx: Receiver<Message>,
-    pub tx: Sender<Message>,
+    // pub reader: Box<dyn FormatReader>,
+// pub rx: Receiver<Message>,
+// pub tx: Sender<Message>,
+}
+
+struct PlayerState {
+    // loaded file
+    loaded: Option<String>,
+    // is player playing right now
+    playing: bool,
+    // loaded @Track instance
+    track: Option<Track>,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        PlayerState {
+            loaded: None,
+            playing: false,
+            track: None,
+        }
+    }
 }
 
 impl Player {
@@ -39,30 +69,108 @@ impl Player {
     //                          Public Methods                          //
     //------------------------------------------------------------------//
 
-    // pub fn new(file_path: &str) -> Player {
-    //     let (tx, rx) = channel::<Message>(100);
-    //     Player { reader, rx, tx }
-    // }
-
-    pub async fn init(file_path: &str) -> Sender<Message> {
-        // Store the track identifier, it will be used to filter packets.
-        // let track_id = track.id;
-        let mut reader = new_reader(file_path);
-        let (tx, mut rx) = channel::<Message>(1000);
-        tokio::spawn(async move {
-            let _res = Player::play_file(&mut reader, &mut rx, None).await;
-        });
+    /// Initializes a new thread, that handles Commands.
+    pub async fn spawn() -> Sender<Message> {
+        // The async channels for Commands(tx) and Responses(rx)
+        let (tx, rx) = channel::<Message>(1000);
+        // Start the command handler thread
+        tokio::spawn(async move { Player::event_loop(rx).await });
         tx
     }
 
     //------------------------------------------------------------------//
-    //                         Private methods                          //
+    //                         Command Handlers                         //
     //------------------------------------------------------------------//
-    async fn play_file(
+    async fn event_loop(mut rx: Receiver<Message>) {
+        // The player state
+        let mut player_state = PlayerState::default();
+        // TODO: move these into PlayerState
+        // The reader/decoder
+        let mut reader = None;
+        // audio output handle
+        let mut audio_output = None;
+        // track info
+        let mut track_info = None;
+        // decoder options
+        let mut dec_opts = None;
+
+        // Async event handlers here:
+        loop {
+            // command handlers
+            match rx.try_recv() {
+                Ok(Message::Command(Command::Load(path))) => {
+                    let mut r = Player::new_reader(&path);
+                    let (ti, dc) = Player::init_output(&mut r, None).unwrap();
+                    reader.replace(r);
+                    track_info.replace(ti);
+                    dec_opts.replace(dc);
+
+                    player_state.loaded = Some(path);
+                }
+                Ok(Message::Command(Command::TogglePlay)) => {
+                    player_state.playing ^= true;
+                    println!(
+                        "Received TogglePlay. New playing state is now {}",
+                        player_state.playing
+                    );
+                }
+                Ok(Message::Command(Command::Close)) => break,
+                Ok(msg) => todo!("{:#?}", msg),
+                Err(_) => {
+                    // This happens, when there are still outstanding channels, but the message
+                    // queue is empty, so just ignore this
+                }
+            }
+            // playback loop
+            match &mut reader {
+                Some(r) => {
+                    if player_state.playing {
+                        Player::play_sample(
+                            r,
+                            &mut audio_output,
+                            &track_info.unwrap(),
+                            &dec_opts.unwrap(),
+                        )
+                        .unwrap();
+                    };
+                }
+                _ => {}
+            }
+        }
+    }
+    fn first_supported_track(tracks: &[Track]) -> Option<&Track> {
+        tracks
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+    }
+
+    // creates a new @FormatReader
+    fn new_reader(file_path: &str) -> Box<dyn FormatReader> {
+        let src = std::fs::File::open(file_path).expect("failed to open media");
+
+        // Create the media source stream.
+        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+
+        // Create a probe hint using the file's extension. [Optional]
+        let mut hint = Hint::new();
+        hint.with_extension("mp3");
+
+        // Use the default options for metadata and format readers.
+        let meta_opts: MetadataOptions = Default::default();
+        let fmt_opts: FormatOptions = Default::default();
+
+        // Probe the media source.
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &fmt_opts, &meta_opts)
+            .expect("unsupported format");
+        // Get the instantiated format reader.
+        probed.format
+    }
+
+    fn init_output(
         reader: &mut Box<dyn FormatReader>,
-        rx: &mut Receiver<Message>,
         seek_time: Option<f64>,
-    ) -> Result<()> {
+    ) -> Result<(PlayTrackOptions, DecoderOptions)> {
         // Use the default options for the decoder.
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: true,
@@ -70,12 +178,15 @@ impl Player {
         };
         // select the first track with a known codec.
         //
-        let track = first_supported_track(reader.tracks());
+        let track = Player::first_supported_track(reader.tracks());
 
         let mut track_id = match track {
             Some(track) => track.id,
-            _ => return Ok(()),
+            _ => 0,
         };
+
+        // The audio output device.
+        // let mut audio_output = None;
 
         // If there is a seek time, seek the reader to the time specified and get the timestamp of the
         // seeked position. All packets with a timestamp < the seeked position will not be played.
@@ -95,7 +206,7 @@ impl Player {
                 Ok(seeked_to) => seeked_to.required_ts,
                 Err(Error::ResetRequired) => {
                     // print_tracks(reader.tracks());
-                    track_id = first_supported_track(reader.tracks()).unwrap().id;
+                    track_id = Player::first_supported_track(reader.tracks()).unwrap().id;
                     0
                 }
                 Err(err) => {
@@ -109,44 +220,51 @@ impl Player {
             0
         };
 
-        // The audio output device.
-        let mut audio_output = None;
-
-        let mut track_info = PlayTrackOptions { track_id, seek_ts };
-        let result = loop {
-            match Player::play_track(reader, rx, &mut audio_output, track_info, &dec_opts) {
-                Err(Error::ResetRequired) => {
-                    // The demuxer indicated that a reset is required. This is sometimes seen with
-                    // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
-                    // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
-                    // recreate the decoder.
-                    // print_tracks(self.reader.tracks());
-
-                    // Select the first supported track since the user's selected track number might no
-                    // longer be valid or make sense.
-                    let track_id = first_supported_track(reader.tracks()).unwrap().id;
-                    track_info = PlayTrackOptions {
-                        track_id,
-                        seek_ts: 0,
-                    };
-                }
-                res => break res,
-            }
-        };
-
-        // Flush the audio output to finish playing back any leftover samples.
-        if let Some(audio_output) = audio_output.as_mut() {
-            audio_output.flush()
-        }
-
-        result
+        let track_info = PlayTrackOptions { track_id, seek_ts };
+        //TODO: do we need this loop for non-streamed formats?
+        // Player::play_track(reader, rx, &mut audio_output, track_info, &dec_opts);
+        Ok((track_info, dec_opts))
     }
 
-    fn play_track(
+    // // TODO: refactor
+    // async fn play_file(
+    //     reader: &mut Box<dyn FormatReader>,
+    //     rx: &mut Receiver<Message>,
+    //     seek_time: Option<f64>,
+    // ) -> Result<()> {
+    //     let result = loop {
+    //         match Player::play_sample(reader, rx, track_info, &dec_opts) {
+    //             Err(Error::ResetRequired) => {
+    //                 // The demuxer indicated that a reset is required. This is sometimes seen with
+    //                 // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
+    //                 // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
+    //                 // recreate the decoder.
+    //                 // print_tracks(self.reader.tracks());
+    //
+    //                 // Select the first supported track since the user's selected track number might no
+    //                 // longer be valid or make sense.
+    //                 let track_id = Player::first_supported_track(reader.tracks()).unwrap().id;
+    //                 track_info = PlayTrackOptions {
+    //                     track_id,
+    //                     seek_ts: 0,
+    //                 };
+    //             }
+    //             res => break res,
+    //         }
+    //     };
+    //
+    //     // Flush the audio output to finish playing back any leftover samples.
+    //     if let Some(audio_output) = audio_output.as_mut() {
+    //         audio_output.flush()
+    //     }
+    //
+    //     result
+    // }
+
+    fn play_sample(
         reader: &mut Box<dyn FormatReader>,
-        rx: &mut Receiver<Message>,
         audio_output: &mut Option<Box<dyn crate::core::output::AudioOutput>>,
-        play_opts: PlayTrackOptions,
+        play_opts: &PlayTrackOptions,
         decode_opts: &DecoderOptions,
     ) -> Result<()> {
         // Get the selected track using the track ID.
@@ -171,89 +289,72 @@ impl Player {
         //     .map(|frames| track.codec_params.start_ts + frames);
 
         // Decode and play the packets belonging to the selected track.
-        let mut playing = true;
-        let result = loop {
-            match rx.try_recv() {
-                Ok(_) => {
-                    println!("toggle play");
-                    playing ^= true
+        // Get the next packet from the format reader.
+        let packet = reader.next_packet().unwrap();
+
+        // If the packet does not belong to the selected track, skip it.
+        if packet.track_id() != play_opts.track_id {
+            ()
+        }
+
+        //Print out new metadata.
+        while !reader.metadata().is_latest() {
+            reader.metadata().pop();
+
+            // if let Some(rev) = reader.metadata().current() {
+            //     // print_update(rev);
+            // }
+        }
+
+        // Decode the packet into audio samples.
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                // If the audio output is not open, try to open it.
+                if audio_output.is_none() {
+                    // Get the audio buffer specification. This is a description of the decoded
+                    // audio buffer's sample format and sample rate.
+                    let spec = *decoded.spec();
+
+                    // Get the capacity of the decoded buffer. Note that this is capacity, not
+                    // length! The capacity of the decoded buffer is constant for the life of the
+                    // decoder, but the length is not.
+                    let duration = decoded.capacity() as u64;
+
+                    // Try to open the audio output.
+                    audio_output.replace(output::try_open(spec, duration).unwrap());
+                } else {
+                    // TODO: Check the audio spec. and duration hasn't changed.
                 }
-                Err(_) => (),
-            }
-            if !playing {
-                continue;
-            }
-            // Get the next packet from the format reader.
-            let packet = match reader.next_packet() {
-                Ok(packet) => packet,
-                Err(err) => break Err(err),
-            };
 
-            // If the packet does not belong to the selected track, skip it.
-            if packet.track_id() != play_opts.track_id {
-                continue;
-            }
+                // Write the decoded audio samples to the audio output if the presentation timestamp
+                // for the packet is >= the seeked position (0 if not seeking).
+                if packet.ts() >= play_opts.seek_ts {
+                    // print_progress(packet.ts(), dur, tb); //TODO: print progress
 
-            //Print out new metadata.
-            while !reader.metadata().is_latest() {
-                reader.metadata().pop();
-
-                // if let Some(rev) = reader.metadata().current() {
-                //     // print_update(rev);
-                // }
-            }
-
-            // Decode the packet into audio samples.
-            match decoder.decode(&packet) {
-                Ok(decoded) => {
-                    // If the audio output is not open, try to open it.
-                    if audio_output.is_none() {
-                        // Get the audio buffer specification. This is a description of the decoded
-                        // audio buffer's sample format and sample rate.
-                        let spec = *decoded.spec();
-
-                        // Get the capacity of the decoded buffer. Note that this is capacity, not
-                        // length! The capacity of the decoded buffer is constant for the life of the
-                        // decoder, but the length is not.
-                        let duration = decoded.capacity() as u64;
-
-                        // Try to open the audio output.
-                        audio_output.replace(output::try_open(spec, duration).unwrap());
-                    } else {
-                        // TODO: Check the audio spec. and duration hasn't changed.
-                    }
-
-                    // Write the decoded audio samples to the audio output if the presentation timestamp
-                    // for the packet is >= the seeked position (0 if not seeking).
-                    if packet.ts() >= play_opts.seek_ts {
-                        // print_progress(packet.ts(), dur, tb); //TODO: print progress
-
-                        if let Some(audio_output) = audio_output {
-                            audio_output.write(decoded).unwrap()
-                        }
+                    if let Some(audio_output) = audio_output {
+                        audio_output.write(decoded).unwrap()
                     }
                 }
-                Err(Error::DecodeError(err)) => {
-                    // Decode errors are not fatal. Print the error message and try to decode the next
-                    // packet as usual.
-                    warn!("decode error: {}", err);
-                }
-                Err(err) => break Err(err),
             }
+            Err(Error::DecodeError(err)) => {
+                // Decode errors are not fatal. Print the error message and try to decode the next
+                // packet as usual.
+                warn!("decode error: {}", err);
+            }
+            Err(err) => (),
         };
 
         // Regardless of result, finalize the decoder to get the verification result.
         let finalize_result = decoder.finalize();
 
-        if let Some(verify_ok) = finalize_result.verify_ok {
-            if verify_ok {
-                info!("verification passed");
-            } else {
-                info!("verification failed");
-            }
-        }
-
-        result
+        // if let Some(verify_ok) = finalize_result.verify_ok {
+        //     if verify_ok {
+        //         info!("verification passed");
+        //     } else {
+        //         info!("verification failed");
+        //     }
+        // }
+        Ok(())
     }
 }
 
@@ -261,31 +362,4 @@ impl Player {
 struct PlayTrackOptions {
     track_id: u32,
     seek_ts: u64,
-}
-
-fn first_supported_track(tracks: &[Track]) -> Option<&Track> {
-    tracks
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-}
-fn new_reader(file_path: &str) -> Box<dyn FormatReader> {
-    let src = std::fs::File::open(file_path).expect("failed to open media");
-
-    // Create the media source stream.
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
-
-    // Create a probe hint using the file's extension. [Optional]
-    let mut hint = Hint::new();
-    hint.with_extension("mp3");
-
-    // Use the default options for metadata and format readers.
-    let meta_opts: MetadataOptions = Default::default();
-    let fmt_opts: FormatOptions = Default::default();
-
-    // Probe the media source.
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)
-        .expect("unsupported format");
-    // Get the instantiated format reader.
-    probed.format
 }
