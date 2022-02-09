@@ -1,6 +1,6 @@
 use crate::core::output;
-use log::{info, warn};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use log::warn;
+use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::{Error, Result};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::meta::MetadataOptions;
@@ -89,21 +89,22 @@ impl Player {
         let mut reader = None;
         // audio output handle
         let mut audio_output = None;
-        // track info
-        let mut track_info = None;
-        // decoder options
-        let mut dec_opts = None;
+        // decoder
+        let mut decoder = None;
+        // play options
+        let mut play_opts = None;
 
         // Async event handlers here:
         loop {
             // command handlers
             match rx.try_recv() {
                 Ok(Message::Command(Command::Load(path))) => {
+                    println!("Received Load Command");
                     let mut r = Player::new_reader(&path);
-                    let (ti, dc) = Player::init_output(&mut r, None).unwrap();
+                    let (dec, po) = Player::init_output(&mut r, None).unwrap();
                     reader.replace(r);
-                    track_info.replace(ti);
-                    dec_opts.replace(dc);
+                    play_opts.replace(po);
+                    decoder.replace(dec);
 
                     player_state.loaded = Some(path);
                 }
@@ -121,21 +122,13 @@ impl Player {
                     // queue is empty, so just ignore this
                 }
             }
-            // playback loop
-            match &mut reader {
-                Some(r) => {
-                    if player_state.playing {
-                        Player::play_sample(
-                            r,
-                            &mut audio_output,
-                            &track_info.unwrap(),
-                            &dec_opts.unwrap(),
-                        )
-                        .unwrap();
-                    };
+            // if there is a valid reader, play_options and decoder play a sample
+            if let (Some(r), Some(p_opts), Some(dec)) = (&mut reader, &mut play_opts, &mut decoder)
+            {
+                if player_state.playing {
+                    Player::play_sample(r, &mut audio_output, p_opts, dec).unwrap();
                 }
-                _ => {}
-            }
+            };
         }
     }
     fn first_supported_track(tracks: &[Track]) -> Option<&Track> {
@@ -170,7 +163,7 @@ impl Player {
     fn init_output(
         reader: &mut Box<dyn FormatReader>,
         seek_time: Option<f64>,
-    ) -> Result<(PlayTrackOptions, DecoderOptions)> {
+    ) -> Result<(Box<dyn Decoder>, PlayTrackOptions)> {
         // Use the default options for the decoder.
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: true,
@@ -179,7 +172,8 @@ impl Player {
         // select the first track with a known codec.
         //
         let track = Player::first_supported_track(reader.tracks());
-
+        let codec_params = &track.unwrap().codec_params;
+        let decoder = symphonia::default::get_codecs().make(&codec_params, &dec_opts);
         let mut track_id = match track {
             Some(track) => track.id,
             _ => 0,
@@ -223,7 +217,12 @@ impl Player {
         let track_info = PlayTrackOptions { track_id, seek_ts };
         //TODO: do we need this loop for non-streamed formats?
         // Player::play_track(reader, rx, &mut audio_output, track_info, &dec_opts);
-        Ok((track_info, dec_opts))
+        //
+        // Create a decoder for the track.
+        match decoder {
+            Ok(dec) => Ok((dec, track_info)),
+            Err(err) => Err(err),
+        }
     }
 
     // // TODO: refactor
@@ -264,8 +263,8 @@ impl Player {
     fn play_sample(
         reader: &mut Box<dyn FormatReader>,
         audio_output: &mut Option<Box<dyn crate::core::output::AudioOutput>>,
-        play_opts: &PlayTrackOptions,
-        decode_opts: &DecoderOptions,
+        play_opts: &mut PlayTrackOptions,
+        decoder: &mut Box<dyn Decoder>,
     ) -> Result<()> {
         // Get the selected track using the track ID.
         let track = match reader
@@ -276,11 +275,6 @@ impl Player {
             Some(track) => track,
             _ => return Ok(()),
         };
-
-        // Create a decoder for the track.
-        let mut decoder =
-            symphonia::default::get_codecs().make(&track.codec_params, decode_opts)?;
-
         // Get the selected track's timebase and duration.
         let _tb = track.codec_params.time_base;
         // let dur = track
@@ -297,14 +291,14 @@ impl Player {
             ()
         }
 
-        //Print out new metadata.
-        while !reader.metadata().is_latest() {
-            reader.metadata().pop();
-
-            // if let Some(rev) = reader.metadata().current() {
-            //     // print_update(rev);
-            // }
-        }
+        // //Print out new metadata.
+        // while !reader.metadata().is_latest() {
+        //     reader.metadata().pop();
+        //
+        //     // if let Some(rev) = reader.metadata().current() {
+        //     //     // print_update(rev);
+        //     // }
+        // }
 
         // Decode the packet into audio samples.
         match decoder.decode(&packet) {
@@ -341,11 +335,16 @@ impl Player {
                 // packet as usual.
                 warn!("decode error: {}", err);
             }
-            Err(err) => (),
+            // TODO: catch these errors
+            Err(Error::IoError(_)) => (),
+            Err(Error::SeekError(_)) => (),
+            Err(Error::Unsupported(_)) => (),
+            Err(Error::LimitError(_)) => (),
+            Err(Error::ResetRequired) => (),
         };
 
         // Regardless of result, finalize the decoder to get the verification result.
-        let finalize_result = decoder.finalize();
+        // let finalize_result = decoder.finalize();
 
         // if let Some(verify_ok) = finalize_result.verify_ok {
         //     if verify_ok {
