@@ -1,3 +1,24 @@
+# Current State and TODO
+  - UI: 
+    * [ ] Overview Wave Form
+    * [ ] Live Wave Form
+    * [ ] Playlists View
+Do we use [tui-rs](https://github.com/fdehau/tui-rs) or the more high-level, Elm-like [tui-realm]( https://github.com/veeso/tui-realm ) as a framework, which builds upon `tui-rs` 
+  - Player:
+    * [x] Async Event handling
+    * [x] Play/Pause
+    * [ ] Seeking
+    * [ ] Cue
+  - Track Analysis
+    * [ ] BPM Detection
+    * [ ] Beatgrid Detection
+    * [ ] Creating cue points
+    * [ ] Storing results in a mobile database
+      *  which DB to use?
+  - Rekordbox
+    * [ ] Converting internal structure into [rekordcrate's](https://github.com/Holzhaus/rekordcrate) structure
+    * [ ] Storing information
+
 # Ideas
   - TUI with vim bindings, wave form and overview of tracks/playlists/crates 
   - export: export data in rekordbox format, since all major players support
