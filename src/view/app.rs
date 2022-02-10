@@ -1,6 +1,7 @@
 use crate::view::widgets::wave::WaveWidget;
+use crate::Event;
 use crossterm::{
-    event::{self, EnableMouseCapture, Event, KeyCode},
+    event::{self, EnableMouseCapture, KeyCode},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
@@ -8,103 +9,54 @@ use rand::Rng;
 use std::{
     io,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 use std::{thread, time};
-use tokio::sync::mpsc::Sender;
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    task::JoinHandle,
+};
 use tui::backend::{Backend, CrosstermBackend};
 use tui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::Color,
-    widgets::{canvas::Rectangle, Block, Borders},
+    layout::{Constraint, Direction, Layout},
+    widgets::{Block, Borders},
     Frame, Terminal,
 };
 
-use crate::core::player::{Command, Message, Player};
+use crate::core::player::{Message, Player};
 
 use super::widgets::wave::DataBuffer;
 
 const MAX_BUFFER_SAMPLES: usize = 1000;
 
 /// Represents the App's State
-pub struct AppState {
-    ball: Rectangle,
-    playground: Rect,
-    vx: f64,
-    vy: f64,
-    dir_x: bool,
-    dir_y: bool,
-}
-
-impl AppState {
-    /// update the app's state
-    fn update(&mut self) {
-        if self.ball.x < self.playground.left() as f64
-            || self.ball.x + self.ball.width > self.playground.right() as f64
-        {
-            self.dir_x = !self.dir_x;
-        }
-        if self.ball.y < self.playground.top() as f64
-            || self.ball.y + self.ball.height > self.playground.bottom() as f64
-        {
-            self.dir_y = !self.dir_y;
-        }
-
-        if self.dir_x {
-            self.ball.x += self.vx;
-        } else {
-            self.ball.x -= self.vx;
-        }
-
-        if self.dir_y {
-            self.ball.y += self.vy;
-        } else {
-            self.ball.y -= self.vy
-        }
-    }
-}
+pub struct AppState {}
 
 impl Default for AppState {
     fn default() -> AppState {
-        AppState {
-            ball: Rectangle {
-                x: 10.0,
-                y: 30.0,
-                width: 10.0,
-                height: 10.0,
-                color: Color::Yellow,
-            },
-            playground: Rect::new(10, 10, 100, 100),
-            vx: 1.0,
-            vy: 1.0,
-            dir_x: true,
-            dir_y: true,
-        }
+        AppState {}
     }
 }
 
 pub struct App {
-    /// update rate of the app (i.e. every 25 ms)
-    tick_rate: Duration,
-    /// the apps internal state
-    state: AppState,
-    /// all loaded widgets, the app needs
-    // widgets: Vec<Box<dyn Widget>>,
     /// a sender channel to the Player thread
     player_handle: Sender<Message>,
+    /// shared audio buffer
     audio_buffer: Arc<Mutex<DataBuffer>>,
+    /// the receiver end of Events
+    event_channel_rx: Receiver<Event>,
+    /// the transmitter end of Events
+    event_channel_tx: Sender<Event>,
 }
 
 impl App {
     pub fn new() -> App {
         // create app and run it
-        let tick_rate = Duration::from_millis(250);
+        let (tx, rx) = channel::<Event>(1);
         App {
-            tick_rate,
-            state: AppState::default(),
-            // widgets: vec![],
             player_handle: Player::spawn(),
             audio_buffer: Arc::new(Mutex::new(DataBuffer::new(MAX_BUFFER_SAMPLES))),
+            event_channel_rx: rx,
+            event_channel_tx: tx.clone(),
         }
     }
 
@@ -112,75 +64,72 @@ impl App {
         tokio::spawn(async move {
             let mut rng = rand::thread_rng();
             let mut r = Player::new_reader("music/bass_symptom.mp3");
-            let mut c = 0;
             while let Ok(p) = r.next_packet() {
-                for smp in p.buf().into_iter() {
+                for _smp in p.buf().into_iter() {
                     thread::sleep(time::Duration::from_millis(100));
                     buf.lock().unwrap().push_latest_data(&[rng.gen()]);
                     // buf.lock().unwrap().push_latest_data(&[smp.clone() as f32]);
-                    c += 1;
                 }
-                c = 0;
             }
         });
     }
     /// Run the application. Handles Keyboard input and the rendering of the app.
     pub async fn run(mut self) -> io::Result<()> {
+        // init terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
-        let mut last_tick = Instant::now();
-        App::simulate_filling_audio_buffer(Arc::clone(&self.audio_buffer));
+        App::simulate_filling_audio_buffer(Arc::clone(&self.audio_buffer)); // this is just for testing
+                                                                            // spawn the input thread
+        let _kb_join_handle = App::spawn_key_handler(self.event_channel_tx.clone());
+        // execute main UI loop
         loop {
+            // draw to terminal
             terminal.draw(|f| self.layout(f))?;
-
-            // TODO: what is this?
-            let timeout = self
-                .tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
-            // TODO: Error handling
-            if event::poll(timeout)? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Enter => {
-                            self.player_handle
-                                .send(Message::Command(Command::Load(String::from(
-                                    "music/bass_symptom.mp3",
-                                ))))
-                                .await
-                                .unwrap();
-                        }
-                        KeyCode::Char(' ') => {
-                            self.player_handle
-                                .send(Message::Command(Command::TogglePlay))
-                                .await
-                                .unwrap();
-                        }
-                        KeyCode::Char('q') => {
-                            self.player_handle
-                                .send(Message::Command(Command::Close))
-                                .await
-                                .unwrap();
-                            return Ok(());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            if last_tick.elapsed() >= self.tick_rate {
-                self.update();
-                last_tick = Instant::now();
+            // get events
+            if let Some(ev) = self.event_channel_rx.recv().await {
+                // update state
+                self.update_state(ev).await;
             }
         }
     }
 
+    fn spawn_key_handler(app: Sender<Event>) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            loop {
+                if let crossterm::event::Event::Key(key) = event::read().unwrap() {
+                    let ev = match key.code {
+                        KeyCode::Enter => Event::LoadTrack(String::from("music/bass_symptom.mp3")),
+                        KeyCode::Char(' ') => Event::TogglePlay,
+                        KeyCode::Char('q') => Event::Quit,
+                        _ => Event::Unknown,
+                    };
+                    match app.send(ev).await {
+                        Ok(_res) => (),
+                        Err(err) => {
+                            println!("Error:{:#?}", err)
+                        }
+                    }
+                };
+            }
+        })
+    }
+
     ///update the app's model
-    fn update(&mut self) {
-        self.state.update()
+    async fn update_state(&mut self, ev: Event) {
+        match ev {
+            Event::TogglePlay => {
+                self.player_handle.send(Message::TogglePlay).await.unwrap();
+            }
+            Event::LoadTrack(track) => {
+                self.player_handle.send(Message::Load(track)).await.unwrap();
+            }
+            // Event::SamplePlayed => println!("sample played event received"),
+            Event::Quit => std::process::exit(0),
+            Event::Unknown => todo!(),
+        }
     }
 
     /// define how the app should look like

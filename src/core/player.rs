@@ -9,15 +9,8 @@ use symphonia::core::units::Time;
 use symphonia::core::{formats::Track, io::MediaSourceStream};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-// Tokio Channel messages for the player task
 #[derive(Clone, Debug)]
 pub enum Message {
-    Command(Command),
-    Response(Response),
-}
-
-#[derive(Clone, Debug)]
-pub enum Command {
     // Load a new file
     Load(String),
     // Toggle playback
@@ -95,7 +88,7 @@ impl Player {
         loop {
             // command handlers
             match rx.try_recv() {
-                Ok(Message::Command(Command::Load(path))) => {
+                Ok(Message::Load(path)) => {
                     let mut r = Player::new_reader(&path);
                     let (dec, po) = Player::init_output(&mut r, Some(66.2_f64)).unwrap();
                     reader.replace(r);
@@ -104,10 +97,10 @@ impl Player {
 
                     player_state.loaded = Some(path);
                 }
-                Ok(Message::Command(Command::TogglePlay)) => {
+                Ok(Message::TogglePlay) => {
                     player_state.playing ^= true;
                 }
-                Ok(Message::Command(Command::Close)) => break,
+                Ok(Message::Close) => break,
                 Ok(msg) => todo!("{:#?}", msg),
                 Err(_) => {
                     // This happens, when there are still outstanding channels, but the message
