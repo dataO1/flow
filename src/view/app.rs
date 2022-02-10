@@ -53,7 +53,7 @@ impl App {
         // create app and run it
         let (tx, rx) = channel::<Event>(1);
         App {
-            player_handle: Player::spawn(),
+            player_handle: Player::spawn(tx.clone()),
             audio_buffer: Arc::new(Mutex::new(DataBuffer::new(MAX_BUFFER_SAMPLES))),
             event_channel_rx: rx,
             event_channel_tx: tx.clone(),
@@ -66,7 +66,7 @@ impl App {
             let mut r = Player::new_reader("music/bass_symptom.mp3");
             while let Ok(p) = r.next_packet() {
                 for _smp in p.buf().into_iter() {
-                    thread::sleep(time::Duration::from_millis(100));
+                    thread::sleep(time::Duration::from_millis(10));
                     buf.lock().unwrap().push_latest_data(&[rng.gen()]);
                     // buf.lock().unwrap().push_latest_data(&[smp.clone() as f32]);
                 }
@@ -88,11 +88,16 @@ impl App {
         loop {
             // draw to terminal
             terminal.draw(|f| self.layout(f))?;
-            // get events
+            // get events async
             if let Some(ev) = self.event_channel_rx.recv().await {
                 // update state
                 self.update_state(ev).await;
             }
+            // get events async
+            // if let Ok(ev) = self.event_channel_rx.try_recv() {
+            //     // update state
+            //     self.update_state(ev).await;
+            // }
         }
     }
 
@@ -126,7 +131,7 @@ impl App {
             Event::LoadTrack(track) => {
                 self.player_handle.send(Message::Load(track)).await.unwrap();
             }
-            // Event::SamplePlayed => println!("sample played event received"),
+            Event::SamplePlayed(sample) => (),
             Event::Quit => std::process::exit(0),
             Event::Unknown => todo!(),
         }
@@ -136,7 +141,7 @@ impl App {
     fn layout<B: Backend>(&self, f: &mut Frame<B>) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
             .split(f.size());
         let waveform_block = Block::default()
             .borders(Borders::ALL)

@@ -1,4 +1,5 @@
 use crate::core::output;
+use crate::Event;
 use log::warn;
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::{Error, Result};
@@ -60,18 +61,18 @@ impl Player {
     //------------------------------------------------------------------//
 
     /// Initializes a new thread, that handles Commands.
-    pub fn spawn() -> Sender<Message> {
+    pub fn spawn(app: Sender<Event>) -> Sender<Message> {
         // The async channels for Commands(tx) and Responses(rx)
-        let (tx, rx) = channel::<Message>(1000);
+        let (tx, mut rx) = channel::<Message>(1000);
         // Start the command handler thread
-        tokio::spawn(async move { Player::event_loop(rx).await });
+        tokio::spawn(async move { Player::event_loop(&mut rx, &app).await });
         tx
     }
 
     //------------------------------------------------------------------//
     //                         Command Handlers                         //
     //------------------------------------------------------------------//
-    async fn event_loop(mut rx: Receiver<Message>) {
+    async fn event_loop(rx: &mut Receiver<Message>, app: &Sender<Event>) {
         // The player state
         let mut player_state = PlayerState::default();
         // TODO: move these into PlayerState
@@ -112,6 +113,13 @@ impl Player {
             {
                 if player_state.playing {
                     Player::play_sample(r, &mut audio_output, p_opts, dec).unwrap();
+                    //TODO: can't await here, which makes lazy redrawing and a useful
+                    // visual representation of the audio wave form impossible.
+                    // For this to fix, we need to refactor the Player
+                    match app.try_send(Event::SamplePlayed(1)) {
+                        Ok(_) => (),
+                        Err(err) => (),
+                    }
                 }
             };
         }
@@ -209,41 +217,6 @@ impl Player {
             Err(err) => Err(err),
         }
     }
-
-    // // TODO: refactor
-    // async fn play_file(
-    //     reader: &mut Box<dyn FormatReader>,
-    //     rx: &mut Receiver<Message>,
-    //     seek_time: Option<f64>,
-    // ) -> Result<()> {
-    //     let result = loop {
-    //         match Player::play_sample(reader, rx, track_info, &dec_opts) {
-    //             Err(Error::ResetRequired) => {
-    //                 // The demuxer indicated that a reset is required. This is sometimes seen with
-    //                 // streaming OGG (e.g., Icecast) wherein the entire contents of the container change
-    //                 // (new tracks, codecs, metadata, etc.). Therefore, we must select a new track and
-    //                 // recreate the decoder.
-    //                 // print_tracks(self.reader.tracks());
-    //
-    //                 // Select the first supported track since the user's selected track number might no
-    //                 // longer be valid or make sense.
-    //                 let track_id = Player::first_supported_track(reader.tracks()).unwrap().id;
-    //                 track_info = PlayTrackOptions {
-    //                     track_id,
-    //                     seek_ts: 0,
-    //                 };
-    //             }
-    //             res => break res,
-    //         }
-    //     };
-    //
-    //     // Flush the audio output to finish playing back any leftover samples.
-    //     if let Some(audio_output) = audio_output.as_mut() {
-    //         audio_output.flush()
-    //     }
-    //
-    //     result
-    // }
 
     fn play_sample(
         reader: &mut Box<dyn FormatReader>,

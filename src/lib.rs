@@ -6,6 +6,6 @@ pub enum Event {
     TogglePlay,
     LoadTrack(String),
     Quit,
-    // SamplePlayed,
+    SamplePlayed(u16),
     Unknown,
 }
