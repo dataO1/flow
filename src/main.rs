@@ -5,5 +5,5 @@ extern crate crossterm;
 async fn main() {
     let app = App::new();
     let res = app.run().await.unwrap();
-    print!("exit: {:#?}", res);
+    println!("App closed: {:#?}", res);
 }

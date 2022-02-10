@@ -96,9 +96,8 @@ impl Player {
             // command handlers
             match rx.try_recv() {
                 Ok(Message::Command(Command::Load(path))) => {
-                    println!("Received Load Command");
                     let mut r = Player::new_reader(&path);
-                    let (dec, po) = Player::init_output(&mut r, Some(42_f64)).unwrap();
+                    let (dec, po) = Player::init_output(&mut r, Some(66.2_f64)).unwrap();
                     reader.replace(r);
                     play_opts.replace(po);
                     decoder.replace(dec);
@@ -107,10 +106,6 @@ impl Player {
                 }
                 Ok(Message::Command(Command::TogglePlay)) => {
                     player_state.playing ^= true;
-                    println!(
-                        "Received TogglePlay. New playing state is now {}",
-                        player_state.playing
-                    );
                 }
                 Ok(Message::Command(Command::Close)) => break,
                 Ok(msg) => todo!("{:#?}", msg),

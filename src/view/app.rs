@@ -1,3 +1,4 @@
+use crate::view::widgets::wave::WaveWidget;
 use crossterm::{
     event::{self, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -5,29 +6,26 @@ use crossterm::{
 };
 use std::{
     io,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc::Sender;
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    widgets::Widget,
-};
+use tui::backend::{Backend, CrosstermBackend};
 use tui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    text::Span,
-    widgets::{
-        canvas::{Canvas, Map, MapResolution, Rectangle},
-        Block, Borders,
-    },
+    style::Color,
+    widgets::{canvas::Rectangle, Block, Borders},
     Frame, Terminal,
 };
 
 use crate::core::player::{Command, Message, Player};
 
+use super::widgets::wave::DataBuffer;
+
+const MAX_BUFFER_SAMPLES: usize = 1000;
+
+/// Represents the App's State
 pub struct AppState {
-    x: f64,
-    y: f64,
     ball: Rectangle,
     playground: Rect,
     vx: f64,
@@ -36,11 +34,37 @@ pub struct AppState {
     dir_y: bool,
 }
 
+impl AppState {
+    /// update the app's state
+    fn update(&mut self) {
+        if self.ball.x < self.playground.left() as f64
+            || self.ball.x + self.ball.width > self.playground.right() as f64
+        {
+            self.dir_x = !self.dir_x;
+        }
+        if self.ball.y < self.playground.top() as f64
+            || self.ball.y + self.ball.height > self.playground.bottom() as f64
+        {
+            self.dir_y = !self.dir_y;
+        }
+
+        if self.dir_x {
+            self.ball.x += self.vx;
+        } else {
+            self.ball.x -= self.vx;
+        }
+
+        if self.dir_y {
+            self.ball.y += self.vy;
+        } else {
+            self.ball.y -= self.vy
+        }
+    }
+}
+
 impl Default for AppState {
     fn default() -> AppState {
         AppState {
-            x: 0.0,
-            y: 0.0,
             ball: Rectangle {
                 x: 10.0,
                 y: 30.0,
@@ -58,10 +82,15 @@ impl Default for AppState {
 }
 
 pub struct App {
+    /// update rate of the app (i.e. every 25 ms)
     tick_rate: Duration,
+    /// the apps internal state
     state: AppState,
-    widgets: Vec<Box<dyn Widget>>,
+    /// all loaded widgets, the app needs
+    // widgets: Vec<Box<dyn Widget>>,
+    /// a sender channel to the Player thread
     player_handle: Sender<Message>,
+    audio_buffer: Arc<Mutex<DataBuffer>>,
 }
 
 impl App {
@@ -71,11 +100,13 @@ impl App {
         App {
             tick_rate,
             state: AppState::default(),
-            widgets: vec![],
+            // widgets: vec![],
             player_handle: Player::spawn(),
+            audio_buffer: Arc::new(Mutex::new(DataBuffer::new(MAX_BUFFER_SAMPLES))),
         }
     }
 
+    /// Run the application. Handles Keyboard input and the rendering of the app.
     pub async fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
@@ -84,8 +115,9 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         let mut last_tick = Instant::now();
         loop {
-            terminal.draw(|f| self.render(f))?;
+            terminal.draw(|f| self.layout(f))?;
 
+            // TODO: what is this?
             let timeout = self
                 .tick_rate
                 .checked_sub(last_tick.elapsed())
@@ -115,18 +147,6 @@ impl App {
                                 .unwrap();
                             return Ok(());
                         }
-                        KeyCode::Down => {
-                            self.state.y += 1.0;
-                        }
-                        KeyCode::Up => {
-                            self.state.y -= 1.0;
-                        }
-                        KeyCode::Right => {
-                            self.state.x += 1.0;
-                        }
-                        KeyCode::Left => {
-                            self.state.x -= 1.0;
-                        }
                         _ => {}
                     }
                 }
@@ -139,60 +159,23 @@ impl App {
         }
     }
 
-    // TODO:
+    ///update the app's model
     fn update(&mut self) {
-        if self.state.ball.x < self.state.playground.left() as f64
-            || self.state.ball.x + self.state.ball.width > self.state.playground.right() as f64
-        {
-            self.state.dir_x = !self.state.dir_x;
-        }
-        if self.state.ball.y < self.state.playground.top() as f64
-            || self.state.ball.y + self.state.ball.height > self.state.playground.bottom() as f64
-        {
-            self.state.dir_y = !self.state.dir_y;
-        }
-
-        if self.state.dir_x {
-            self.state.ball.x += self.state.vx;
-        } else {
-            self.state.ball.x -= self.state.vx;
-        }
-
-        if self.state.dir_y {
-            self.state.ball.y += self.state.vy;
-        } else {
-            self.state.ball.y -= self.state.vy
-        }
+        self.state.update()
     }
 
-    fn render<B: Backend>(&self, f: &mut Frame<B>) {
+    /// define how the app should look like
+    fn layout<B: Backend>(&self, f: &mut Frame<B>) {
         let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
             .split(f.size());
-        let canvas = Canvas::default()
-            .block(Block::default().borders(Borders::ALL).title("World"))
-            .paint(|ctx| {
-                ctx.draw(&Map {
-                    color: Color::White,
-                    resolution: MapResolution::High,
-                });
-                ctx.print(
-                    self.state.x,
-                    -self.state.y,
-                    Span::styled("You are here", Style::default().fg(Color::Yellow)),
-                );
-            })
-            .x_bounds([-180.0, 180.0])
-            .y_bounds([-90.0, 90.0]);
-        f.render_widget(canvas, chunks[0]);
-        let canvas = Canvas::default()
-            .block(Block::default().borders(Borders::ALL).title("Pong"))
-            .paint(|ctx| {
-                ctx.draw(&self.state.ball);
-            })
-            .x_bounds([10.0, 110.0])
-            .y_bounds([10.0, 110.0]);
-        f.render_widget(canvas, chunks[1]);
+        let waveform_block = Block::default()
+            .borders(Borders::ALL)
+            .title("Waveform Oscilloscope");
+        let mut buffer = self.audio_buffer.lock().unwrap();
+        buffer.push_latest_data(&mut [0.1; 10]);
+        let wave_widget = WaveWidget::new(&buffer);
+        f.render_widget(wave_widget, waveform_block.inner(chunks[0]));
     }
 }
