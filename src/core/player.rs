@@ -130,7 +130,7 @@ impl Player {
     }
 
     // creates a new @FormatReader
-    fn new_reader(file_path: &str) -> Box<dyn FormatReader> {
+    pub fn new_reader(file_path: &str) -> Box<dyn FormatReader> {
         let src = std::fs::File::open(file_path).expect("failed to open media");
 
         // Create the media source stream.

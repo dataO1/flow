@@ -4,11 +4,13 @@ use crossterm::{
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
+use rand::Rng;
 use std::{
     io,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use std::{thread, time};
 use tokio::sync::mpsc::Sender;
 use tui::backend::{Backend, CrosstermBackend};
 use tui::{
@@ -106,6 +108,22 @@ impl App {
         }
     }
 
+    fn simulate_filling_audio_buffer(buf: Arc<Mutex<DataBuffer>>) {
+        tokio::spawn(async move {
+            let mut rng = rand::thread_rng();
+            let mut r = Player::new_reader("music/bass_symptom.mp3");
+            let mut c = 0;
+            while let Ok(p) = r.next_packet() {
+                for smp in p.buf().into_iter() {
+                    thread::sleep(time::Duration::from_millis(100));
+                    buf.lock().unwrap().push_latest_data(&[rng.gen()]);
+                    // buf.lock().unwrap().push_latest_data(&[smp.clone() as f32]);
+                    c += 1;
+                }
+                c = 0;
+            }
+        });
+    }
     /// Run the application. Handles Keyboard input and the rendering of the app.
     pub async fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;
@@ -114,6 +132,7 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         let mut last_tick = Instant::now();
+        App::simulate_filling_audio_buffer(Arc::clone(&self.audio_buffer));
         loop {
             terminal.draw(|f| self.layout(f))?;
 
@@ -173,8 +192,7 @@ impl App {
         let waveform_block = Block::default()
             .borders(Borders::ALL)
             .title("Waveform Oscilloscope");
-        let mut buffer = self.audio_buffer.lock().unwrap();
-        buffer.push_latest_data(&mut [0.1; 10]);
+        let buffer = self.audio_buffer.lock().unwrap();
         let wave_widget = WaveWidget::new(&buffer);
         f.render_widget(wave_widget, waveform_block.inner(chunks[0]));
     }
