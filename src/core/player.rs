@@ -67,7 +67,7 @@ impl Player {
     //------------------------------------------------------------------//
 
     /// Initializes a new thread, that handles Commands.
-    pub async fn spawn() -> Sender<Message> {
+    pub fn spawn() -> Sender<Message> {
         // The async channels for Commands(tx) and Responses(rx)
         let (tx, rx) = channel::<Message>(1000);
         // Start the command handler thread
@@ -98,7 +98,7 @@ impl Player {
                 Ok(Message::Command(Command::Load(path))) => {
                     println!("Received Load Command");
                     let mut r = Player::new_reader(&path);
-                    let (dec, po) = Player::init_output(&mut r, None).unwrap();
+                    let (dec, po) = Player::init_output(&mut r, Some(42_f64)).unwrap();
                     reader.replace(r);
                     play_opts.replace(po);
                     decoder.replace(dec);

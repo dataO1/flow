@@ -4,11 +4,14 @@ use crossterm::{
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
 use std::{
-    error::Error,
     io,
     time::{Duration, Instant},
 };
-use tui::backend::{Backend, CrosstermBackend};
+use tokio::sync::mpsc::Sender;
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    widgets::Widget,
+};
 use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
@@ -19,6 +22,8 @@ use tui::{
     },
     Frame, Terminal,
 };
+
+use crate::core::player::{Command, Message, Player};
 
 pub struct AppState {
     x: f64,
@@ -55,19 +60,23 @@ impl Default for AppState {
 pub struct App {
     tick_rate: Duration,
     state: AppState,
+    widgets: Vec<Box<dyn Widget>>,
+    player_handle: Sender<Message>,
 }
 
 impl App {
-    pub fn new() -> Result<App, Box<dyn Error>> {
+    pub fn new() -> App {
         // create app and run it
         let tick_rate = Duration::from_millis(250);
-        Ok(App {
+        App {
             tick_rate,
             state: AppState::default(),
-        })
+            widgets: vec![],
+            player_handle: Player::spawn(),
+        }
     }
 
-    pub fn run(mut self) -> io::Result<()> {
+    pub async fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -81,10 +90,29 @@ impl App {
                 .tick_rate
                 .checked_sub(last_tick.elapsed())
                 .unwrap_or_else(|| Duration::from_secs(0));
+            // TODO: Error handling
             if event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
                     match key.code {
+                        KeyCode::Enter => {
+                            self.player_handle
+                                .send(Message::Command(Command::Load(String::from(
+                                    "music/bass_symptom.mp3",
+                                ))))
+                                .await
+                                .unwrap();
+                        }
+                        KeyCode::Char(' ') => {
+                            self.player_handle
+                                .send(Message::Command(Command::TogglePlay))
+                                .await
+                                .unwrap();
+                        }
                         KeyCode::Char('q') => {
+                            self.player_handle
+                                .send(Message::Command(Command::Close))
+                                .await
+                                .unwrap();
                             return Ok(());
                         }
                         KeyCode::Down => {
@@ -110,6 +138,8 @@ impl App {
             }
         }
     }
+
+    // TODO:
     fn update(&mut self) {
         if self.state.ball.x < self.state.playground.left() as f64
             || self.state.ball.x + self.state.ball.width > self.state.playground.right() as f64

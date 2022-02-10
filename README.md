@@ -1,5 +1,6 @@
 # Current State and TODO
   - UI ([tui-realm]( https://github.com/veeso/tui-realm ) or [tui-rs](https://github.com/fdehau/tui-rs)) 
+    * [x] Test UI, that handles key events and triggers player
     * [ ] Prototype/Mockup
     * [ ] Wavfeorm - Overview
     * [ ] Waveform - Live
