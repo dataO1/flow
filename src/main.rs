@@ -1,4 +1,5 @@
 use flow::core::player::{Command, Message, Player};
+use flow::view::app;
 extern crate crossterm;
 
 use crossterm::{
@@ -10,6 +11,8 @@ use tokio::sync::mpsc::Sender;
 
 #[tokio::main]
 async fn main() {
+    let app = app::App::new().unwrap();
+    app.run();
     let player_channel = Player::spawn().await;
     player_channel
         .send(Message::Command(Command::Load(String::from(
