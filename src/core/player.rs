@@ -234,11 +234,11 @@ impl Player {
             _ => return Ok(()),
         };
         // Get the selected track's timebase and duration.
-        let _tb = track.codec_params.time_base;
-        // let dur = track
-        //     .codec_params
-        //     .n_frames
-        //     .map(|frames| track.codec_params.start_ts + frames);
+        let tb = track.codec_params.time_base;
+        let dur = track
+            .codec_params
+            .n_frames
+            .map(|frames| track.codec_params.start_ts + frames);
 
         // Decode and play the packets belonging to the selected track.
         // Get the next packet from the format reader.
