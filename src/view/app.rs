@@ -26,7 +26,7 @@ use crate::core::player::{Message, Player};
 
 use super::widgets::wave::DataBuffer;
 
-const MAX_BUFFER_SAMPLES: usize = 50000;
+const MAX_BUFFER_SAMPLES: usize = 1000;
 
 /// Represents the App's State
 pub struct AppState {}

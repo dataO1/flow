@@ -118,11 +118,20 @@ impl<'a> Widget for WaveWidget<'a> {
                     // fit sample (a value between 0 and 1) into area height
                     let y = sample * (area.height as f32);
                     // let y = y / 5.0;
+                    // draw main line
                     ctx.draw(&Line {
                         x1: x as f64,
                         x2: x as f64,
                         y1: y as f64,
                         y2: -y as f64,
+                        color: Color::Gray,
+                    });
+                    // draw main line
+                    ctx.draw(&Line {
+                        x1: x as f64,
+                        x2: x as f64,
+                        y1: y as f64 * 0.5,
+                        y2: -y as f64 * 0.5,
                         color: self.get_col(sample, prev_sample),
                     });
                     prev_sample = sample;
