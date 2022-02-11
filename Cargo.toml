@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 
 [dependencies]
-aubio = "0.2.1"
+aubio = {version = "0.2.1", features = ["builtin"]}
 rodio = "0.15.0"
 symphonia = { version = "0.5.0", features = ["mp3"] }
 log = { version = "0.4.14", features = ["release_max_level_info"] }

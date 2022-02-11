@@ -5,7 +5,7 @@ extern crate crossterm;
 #[tokio::main]
 async fn main() {
     let tempo = Analyzer::get_tempo("music/bass_symptom.mp3");
-    println!("{}", tempo);
+    // println!("{}", tempo);
     // let app = App::new();
     // let res = app.run().await.unwrap();
     // println!("App closed: {:#?}", res);
