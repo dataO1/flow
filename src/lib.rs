@@ -6,6 +6,6 @@ pub enum Event {
     TogglePlay,
     LoadTrack(String),
     Quit,
-    SamplePlayed(u16),
+    SamplePlayed(Vec<f32>),
     Unknown,
 }

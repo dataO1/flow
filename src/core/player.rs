@@ -1,6 +1,7 @@
 use crate::core::output;
 use crate::Event;
 use log::warn;
+use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::{Error, Result};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
@@ -112,11 +113,11 @@ impl Player {
             if let (Some(r), Some(p_opts), Some(dec)) = (&mut reader, &mut play_opts, &mut decoder)
             {
                 if player_state.playing {
-                    Player::play_sample(r, &mut audio_output, p_opts, dec).unwrap();
+                    let samples = Player::play_packet(r, &mut audio_output, p_opts, dec).unwrap();
                     //TODO: can't await here, which makes lazy redrawing and a useful
                     // visual representation of the audio wave form impossible.
                     // For this to fix, we need to refactor the Player
-                    match app.try_send(Event::SamplePlayed(1)) {
+                    match app.try_send(Event::SamplePlayed(samples)) {
                         Ok(_) => (),
                         Err(err) => (),
                     }
@@ -218,12 +219,12 @@ impl Player {
         }
     }
 
-    fn play_sample(
+    fn play_packet(
         reader: &mut Box<dyn FormatReader>,
         audio_output: &mut Option<Box<dyn crate::core::output::AudioOutput>>,
         play_opts: &mut PlayTrackOptions,
         decoder: &mut Box<dyn Decoder>,
-    ) -> Result<()> {
+    ) -> Result<Vec<f32>> {
         // Get the selected track using the track ID.
         let track = match reader
             .tracks()
@@ -231,7 +232,7 @@ impl Player {
             .find(|track| track.id == play_opts.track_id)
         {
             Some(track) => track,
-            _ => return Ok(()),
+            _ => panic!("didnt find a supported track"),
         };
         // Get the selected track's timebase and duration.
         let tb = track.codec_params.time_base;
@@ -262,44 +263,49 @@ impl Player {
         match decoder.decode(&packet) {
             Ok(decoded) => {
                 // If the audio output is not open, try to open it.
-                if audio_output.is_none() {
-                    // Get the audio buffer specification. This is a description of the decoded
-                    // audio buffer's sample format and sample rate.
-                    let spec = *decoded.spec();
+                // Get the audio buffer specification. This is a description of the decoded
+                // audio buffer's sample format and sample rate.
+                let spec = *decoded.spec();
 
-                    // Get the capacity of the decoded buffer. Note that this is capacity, not
-                    // length! The capacity of the decoded buffer is constant for the life of the
-                    // decoder, but the length is not.
-                    let duration = decoded.capacity() as u64;
+                // Get the capacity of the decoded buffer. Note that this is capacity, not
+                // length! The capacity of the decoded buffer is constant for the life of the
+                // decoder, but the length is not.
+                let duration = decoded.capacity() as u64;
+                let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+                sample_buf.copy_interleaved_ref(decoded.clone());
+                let samples = sample_buf.samples().to_owned();
+                if audio_output.is_none() {
 
                     // Try to open the audio output.
                     audio_output.replace(output::try_open(spec, duration).unwrap());
+                    // create sample buffer
                 } else {
                     // TODO: Check the audio spec. and duration hasn't changed.
                 }
-
                 // Write the decoded audio samples to the audio output if the presentation timestamp
                 // for the packet is >= the seeked position (0 if not seeking).
                 if packet.ts() >= play_opts.seek_ts {
                     // print_progress(packet.ts(), dur, tb); //TODO: print progress
 
                     if let Some(audio_output) = audio_output {
-                        audio_output.write(decoded).unwrap()
+                        audio_output.write(decoded.clone()).unwrap()
                     }
                 }
+                Ok(samples)
             }
-            Err(Error::DecodeError(err)) => {
+            Err(err) => {
                 // Decode errors are not fatal. Print the error message and try to decode the next
                 // packet as usual.
                 warn!("decode error: {}", err);
+                panic!("error")
             }
-            // TODO: catch these errors
-            Err(Error::IoError(_)) => (),
-            Err(Error::SeekError(_)) => (),
-            Err(Error::Unsupported(_)) => (),
-            Err(Error::LimitError(_)) => (),
-            Err(Error::ResetRequired) => (),
-        };
+            // // TODO: catch these errors
+            // Err(Error::IoError(_)) => (),
+            // Err(Error::SeekError(_)) => (),
+            // Err(Error::Unsupported(_)) => (),
+            // Err(Error::LimitError(_)) => (),
+            // Err(Error::ResetRequired) => (),
+        }
 
         // Regardless of result, finalize the decoder to get the verification result.
         // let finalize_result = decoder.finalize();
@@ -311,7 +317,6 @@ impl Player {
         //         info!("verification failed");
         //     }
         // }
-        Ok(())
     }
 }
 
