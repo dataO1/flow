@@ -6,12 +6,14 @@ use tui::style::Color;
 use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
+use crate::core::player::WavePreview;
+
 pub struct WaveWidget<'a> {
-    waveform: &'a DataBuffer,
+    waveform: &'a WavePreview,
 }
 
 impl<'a> WaveWidget<'a> {
-    pub fn new(waveform: &'a DataBuffer) -> Self {
+    pub fn new(waveform: &'a WavePreview) -> Self {
         Self { waveform }
     }
 
@@ -28,64 +30,16 @@ impl<'a> WaveWidget<'a> {
 }
 
 impl<'a> Widget for WaveWidget<'a> {
-    /// Draws the WaveWidget's waveform onto the terminal buffer
-    // fn render(self, area: Rect, buf: &mut Buffer) {
-    //     let Rect { width, height, .. } = area;
-    //     let waveform_len = self.waveform.len();
-    //     assert!(waveform_len > width.into());
-    //
-    //     for col in 1..=width {
-    //         buf.get_mut(col, height / 2)
-    //             .set_char('=')
-    //             .set_fg(Color::Green);
-    //     }
-    //
-    //     for (index, &sample) in self
-    //         .waveform
-    //         .iter()
-    //         .skip(waveform_len - usize::from(width))
-    //         .enumerate()
-    //     {
-    //         let col = index as u16 + 1;
-    //         // Scale (might clip) sample to see more
-    //         let norm_y = sample * 5.;
-    //
-    //         let row = ((norm_y) * f32::from(height)).floor() as u16;
-    //
-    //         // If would clip, don't render anything
-    //         if row > 0 && row < height {
-    //             buf.get_mut(col, row).set_char('#').set_fg(Color::Cyan);
-    //         }
-    //     }
-    // }
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(mut self, area: Rect, buf: &mut Buffer) {
         // println!("{:#?}", area);
-        let samples = vec![
-            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2,
-            0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3,
-            0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4,
-            0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5,
-            0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6,
-            0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7,
-            0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8,
-            0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-            0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
-            0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7,
-            0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6,
-            0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
-            0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3, 0.4,
-            0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2, 0.3,
-            0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1, 0.2,
-            0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.1,
-            0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0,
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1,
-            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2,
-            0.1,
-        ];
         // let samples = samples.iter().cycle().take(2).collect();
-        let waveform_len = self.waveform.len();
+
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
+        let waveform_len = self.waveform.len();
+        if waveform_len < area.width as usize {
+            return;
+        }
         let chunk_size = waveform_len / area.width as usize;
         let can = Canvas::default()
             .block(Block::default().title("Live Preview").borders(Borders::ALL))

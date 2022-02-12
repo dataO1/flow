@@ -1,10 +1,11 @@
-use crate::core::{player, reader};
+use crate::core::reader;
 use log::warn;
+use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::{
-    audio::{AudioBufferRef, RawSampleBuffer, SampleBuffer, SignalSpec},
+    audio::{SampleBuffer, SignalSpec},
     codecs::{Decoder, DecoderOptions},
     errors::Error,
-    formats::{FormatOptions, FormatReader, Packet},
+    formats::{FormatOptions, FormatReader},
     io::MediaSourceStream,
     meta::MetadataOptions,
     probe::Hint,
@@ -30,9 +31,15 @@ pub enum Message {
     Load(String),
     Exit,
 }
+
+pub struct PacketBuffer {
+    pub raw: RawSampleBuffer<f32>,
+    pub decoded: SampleBuffer<f32>,
+}
+
 pub enum Event {
     /// New incoming decoded package
-    PacketDecoded(RawSampleBuffer<f32>),
+    PacketDecoded(PacketBuffer),
     /// Get specification and duration of audio
     Init((SignalSpec, u64)),
     /// The reader is Done
@@ -79,11 +86,18 @@ impl Reader {
                             // println!("decoded a packet");
                             if !sent_spec {
                                 sent_spec = true;
-                                player_out.send(reader::Event::Init((spec, duration))).await;
+                                match player_out.send(reader::Event::Init((spec, duration))).await {
+                                    Ok(_) => {}
+                                    Err(_) => todo!(),
+                                }
                             }
-                            player_out
+                            match player_out
                                 .send(reader::Event::PacketDecoded(sample_buff))
-                                .await;
+                                .await
+                            {
+                                Ok(_) => {}
+                                Err(_) => todo!(),
+                            }
                         }
                         Err(err) => {
                             println!("{:#?}", err);
@@ -139,7 +153,7 @@ impl Reader {
         &self,
         reader: &mut Box<dyn FormatReader>,
         decoder: &mut Box<dyn Decoder>,
-    ) -> Result<(RawSampleBuffer<f32>, SignalSpec, u64), Error> {
+    ) -> Result<(PacketBuffer, SignalSpec, u64), Error> {
         let packet = reader.next_packet()?;
         match decoder.decode(&packet) {
             Ok(decoded) => {
@@ -151,7 +165,9 @@ impl Reader {
                 // length! The capacity of the decoded buffer is constant for the life of the
                 // decoder, but the length is not.
                 let duration = decoded.capacity() as u64;
-                let mut sample_buf = RawSampleBuffer::<f32>::new(duration, spec);
+                let mut raw_sample_buf = RawSampleBuffer::<f32>::new(duration, spec);
+                let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+                raw_sample_buf.copy_interleaved_ref(decoded.clone());
                 sample_buf.copy_interleaved_ref(decoded.clone());
                 // let samples = sample_buf.samples().to_owned();
                 // if audio_output.is_none() {
@@ -171,7 +187,14 @@ impl Reader {
                 //         audio_output.write(decoded.clone()).unwrap()
                 //     }
                 // }
-                Ok((sample_buf, spec, duration))
+                Ok((
+                    PacketBuffer {
+                        raw: raw_sample_buf,
+                        decoded: sample_buf,
+                    },
+                    spec,
+                    duration,
+                ))
             }
             Err(err) => {
                 // Decode errors are not fatal. Print the error message and try to decode the next

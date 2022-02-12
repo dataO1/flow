@@ -1,4 +1,7 @@
-use crate::view::widgets::wave::WaveWidget;
+use crate::{
+    core::player::{self, WavePreview},
+    view::widgets::wave::WaveWidget,
+};
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode},
     execute,
@@ -17,8 +20,6 @@ use tui::{
 
 use crate::core::player::{Message, Player};
 
-use super::widgets::wave::DataBuffer;
-
 const MAX_BUFFER_SAMPLES: usize = 1000;
 
 #[derive(Clone, Debug)]
@@ -26,7 +27,6 @@ pub enum Event {
     TogglePlay,
     LoadTrack(String),
     Quit,
-    SamplePlayed(Vec<f32>),
     Unknown,
 }
 /// Represents the App's State
@@ -39,28 +39,18 @@ impl Default for AppState {
 }
 
 pub struct App {
-    /// a sender channel to the Player thread
-    player_handle: Sender<Message>,
-    /// shared audio buffer
-    audio_buffer: DataBuffer,
-    /// the receiver end of Events
-    event_channel_rx: Receiver<Event>,
-    /// the transmitter end of Events
-    event_channel_tx: Sender<Event>,
+    wave_preview: WavePreview,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            wave_preview: vec![],
+        }
+    }
 }
 
 impl App {
-    pub fn new() -> App {
-        // create app and run it
-        let (tx, rx) = channel::<Event>(1);
-        App {
-            player_handle: Player::spawn(tx.clone()),
-            audio_buffer: DataBuffer::new(MAX_BUFFER_SAMPLES),
-            event_channel_rx: rx,
-            event_channel_tx: tx.clone(),
-        }
-    }
-
     pub async fn run(mut self) -> io::Result<()> {
         // init terminal
         enable_raw_mode()?;
@@ -68,9 +58,13 @@ impl App {
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
-        // App::simulate_filling_audio_buffer(Arc::clone(&self.audio_buffer)); // this is just for testing
+        // create all message passing channels
+        let (key_events_out, mut key_events_in) = channel::<Event>(10);
+        let (player_events_out, mut player_events_in) = channel::<player::Event>(10);
+        let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         // spawn the input thread
-        let _kb_join_handle = App::spawn_key_handler(self.event_channel_tx.clone());
+        let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
+        let player_handle = Player::spawn(player_messages_in, player_events_out);
         // execute main UI loop
         loop {
             // draw to terminal
@@ -81,10 +75,13 @@ impl App {
             //     self.update(ev).await;
             // }
             // get events async
-            if let Ok(ev) = self.event_channel_rx.try_recv() {
-                // update state
-                self.update(ev).await;
-            }
+            // update state
+            self.update(
+                &mut key_events_in,
+                player_messages_out.clone(),
+                &mut player_events_in,
+            )
+            .await;
         }
     }
 
@@ -110,31 +107,43 @@ impl App {
     }
 
     ///update the app's model
-    async fn update(&mut self, ev: Event) {
-        match ev {
-            Event::TogglePlay => {
-                self.player_handle.send(Message::TogglePlay).await;
+    async fn update(
+        &mut self,
+        key_events_in: &mut Receiver<Event>,
+        player_messages_out: Sender<player::Message>,
+        player_events_in: &mut Receiver<player::Event>,
+    ) -> () {
+        if let Ok(ev) = key_events_in.try_recv() {
+            match ev {
+                Event::TogglePlay => {
+                    player_messages_out.send(Message::TogglePlay).await;
+                }
+                Event::LoadTrack(track) => {
+                    player_messages_out.send(Message::Load(track)).await;
+                }
+                Event::Quit => std::process::exit(0),
+                Event::Unknown => {
+                    //ignore unknown commands
+                }
             }
-            Event::LoadTrack(track) => {
-                self.player_handle.send(Message::Load(track)).await;
-            }
-            Event::SamplePlayed(samples) => {
-                self.audio_buffer.push_latest_data(samples);
-            }
-            Event::Quit => std::process::exit(0),
-            Event::Unknown => {
-                //ignore unknown commands
+        };
+        if let Ok(ev) = player_events_in.try_recv() {
+            match ev {
+                player::Event::UpdatePlayPos(preview) => {
+                    self.wave_preview = preview;
+                }
             }
         }
     }
 
     /// define how the app should look like
-    fn layout<B: Backend>(&self, f: &mut Frame<B>) {
+    fn layout<B: Backend>(&mut self, f: &mut Frame<B>) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
             .split(f.size());
-        let wave_widget = WaveWidget::new(&self.audio_buffer);
+        let wave_widget = WaveWidget::new(&self.wave_preview);
+
         f.render_widget(wave_widget, chunks[0]);
     }
 }
