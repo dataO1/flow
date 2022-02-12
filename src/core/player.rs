@@ -143,9 +143,9 @@ impl Player {
                 if let Some(out) = &audio_output {
                     match self.play_buffer(out, pos) {
                         Ok(()) => {
-                            // player_event_out
-                            //     .send(player::Event::UpdatePlayPos(self.get_wave_preview(pos)))
-                            //     .await;
+                            player_event_out
+                                .send(player::Event::UpdatePlayPos(self.get_wave_preview(pos)))
+                                .await;
                         }
                         Err(err) => {}
                     }
