@@ -22,7 +22,7 @@ use tui::{
     Frame, Terminal,
 };
 
-use crate::core::player::{Message, Player};
+use crate::core::player::{Player, PlayerMessage};
 
 use super::widgets::wave::DataBuffer;
 
@@ -39,7 +39,7 @@ impl Default for AppState {
 
 pub struct App {
     /// a sender channel to the Player thread
-    player_handle: Sender<Message>,
+    player_handle: Sender<PlayerMessage>,
     /// shared audio buffer
     audio_buffer: DataBuffer,
     /// the receiver end of Events
@@ -112,10 +112,10 @@ impl App {
     async fn update(&mut self, ev: Event) {
         match ev {
             Event::TogglePlay => {
-                self.player_handle.send(Message::TogglePlay).await.unwrap();
+                self.player_handle.send(PlayerMessage::TogglePlay).await;
             }
             Event::LoadTrack(track) => {
-                self.player_handle.send(Message::Load(track)).await.unwrap();
+                self.player_handle.send(PlayerMessage::Load(track)).await;
             }
             Event::SamplePlayed(samples) => {
                 self.audio_buffer.push_latest_data(samples);
