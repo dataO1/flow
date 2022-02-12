@@ -1,4 +1,4 @@
-use crate::core::player;
+use crate::core::{player, reader};
 use log::warn;
 use symphonia::core::{
     audio::{AudioBufferRef, RawSampleBuffer, SampleBuffer, SignalSpec},
@@ -31,7 +31,12 @@ pub enum Message {
     Exit,
 }
 pub enum Event {
-    SentSampleBuffer(SampleBuffer<f32>),
+    /// New incoming decoded package
+    PacketDecoded(RawSampleBuffer<f32>),
+    /// Get specification and duration of audio
+    Init((SignalSpec, u64)),
+    /// The reader is Done
+    ReaderDone,
 }
 
 pub struct Reader {
@@ -40,7 +45,7 @@ pub struct Reader {
 
 impl Reader {
     pub fn spawn(
-        player_message: Sender<player::Message>,
+        player_out: Sender<reader::Event>,
         mut reader_message: Receiver<Message>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -76,13 +81,11 @@ impl Reader {
                             // println!("decoded a packet");
                             if !sent_spec {
                                 sent_spec = true;
-                                player_message
-                                    .send(player::Message::Init((spec, duration)))
-                                    .await;
+                                player_out.send(reader::Event::Init((spec, duration))).await;
                                 println!("sent spec");
                             }
-                            player_message
-                                .send(player::Message::PacketDecoded(sample_buff))
+                            player_out
+                                .send(reader::Event::PacketDecoded(sample_buff))
                                 .await;
                         }
                         Err(err) => {
