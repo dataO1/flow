@@ -41,7 +41,7 @@ pub enum Event {
     /// New incoming decoded package
     PacketDecoded(PacketBuffer),
     /// Get specification and duration of audio
-    Init((SignalSpec, u64)),
+    Init(SignalSpec),
     /// The reader is Done
     ReaderDone,
 }
@@ -86,7 +86,7 @@ impl Reader {
                             // println!("decoded a packet");
                             if !sent_spec {
                                 sent_spec = true;
-                                match player_out.send(reader::Event::Init((spec, duration))).await {
+                                match player_out.send(reader::Event::Init(spec)).await {
                                     Ok(_) => {}
                                     Err(_) => todo!(),
                                 }
@@ -105,6 +105,7 @@ impl Reader {
                     }
                 };
             }
+            player_out.send(reader::Event::ReaderDone).await;
             // events
         })
     }

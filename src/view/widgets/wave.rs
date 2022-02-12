@@ -6,19 +6,21 @@ use tui::style::Color;
 use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
-use crate::core::player::WavePreview;
+use crate::core::player::PreviewBuffer;
 
 pub struct WaveWidget<'a> {
-    waveform: &'a WavePreview,
+    preview_buf: &'a PreviewBuffer,
 }
 
 impl<'a> WaveWidget<'a> {
-    pub fn new(waveform: &'a WavePreview) -> Self {
-        Self { waveform }
+    pub fn new(waveform: &'a PreviewBuffer) -> Self {
+        Self {
+            preview_buf: waveform,
+        }
     }
 
     /// tries to detect transients and gives them color
-    fn get_col(&self, prev: Sample, curr: Sample) -> Color {
+    fn get_col(&self, prev: &Sample, curr: &Sample) -> Color {
         let diff = curr - prev;
         // try to detect transient
         if diff > 0.6 {
@@ -31,45 +33,28 @@ impl<'a> WaveWidget<'a> {
 
 impl<'a> Widget for WaveWidget<'a> {
     fn render(mut self, area: Rect, buf: &mut Buffer) {
-        // println!("{:#?}", area);
-        // let samples = samples.iter().cycle().take(2).collect();
-
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
-        let waveform_len = self.waveform.len();
-        if waveform_len < area.width as usize {
-            return;
-        }
-        let chunk_size = waveform_len / area.width as usize;
+        let x_max = (area.width as f64 / 2.0).floor() as i16;
+        let x_min = -x_max;
+        let y_max = (area.height as f64 / 2.0).floor() as i16;
+        let y_min = -y_max;
+        let preview_buf = self.preview_buf.get_preview(area.width as usize);
+        // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
+        // println!("preview_buf_len: {}", preview_buf.len());
         let can = Canvas::default()
             .block(Block::default().title("Live Preview").borders(Borders::ALL))
-            .x_bounds([-(waveform_len as f64 / 2.0), (waveform_len as f64 / 2.0)])
-            .y_bounds([-(area.height as f64), (area.height as f64)])
+            .x_bounds([x_min as f64, x_max as f64])
+            .y_bounds([y_min as f64, y_max as f64])
             .paint(|ctx| {
-                let mut prev_sample = 0.0;
+                let mut prev = 0.0 as f32;
                 ctx.layer();
                 // for i in (1..(area.width as usize)) {
-                for (i, sample) in self
-                    .waveform
-                    .iter()
-                    // group samples into chunks
-                    .chunks(chunk_size)
-                    .into_iter()
-                    // and compute their average
-                    .map(|chunk| {
-                        let mut num = 0;
-                        let mut sum = 0.0;
-                        for samp in chunk {
-                            num += 1;
-                            sum += samp;
-                        }
-                        sum / num as f32
-                    })
-                    .enumerate()
-                {
+                for (i, sample) in preview_buf.into_iter().enumerate() {
                     // determine x
-                    let x = ((i * chunk_size) as f32) - (waveform_len as f32 / 2.0);
+                    // let x = ((i * chunk_size) as f32) - (preview_buf_len as f32 / 2.0);
                     // fit sample (a value between 0 and 1) into area height
+                    let x = x_min + i as i16;
                     let y = sample * (area.height as f32);
                     // let y = y / 5.0;
                     // draw main line
@@ -86,9 +71,9 @@ impl<'a> Widget for WaveWidget<'a> {
                         x2: x as f64,
                         y1: y as f64 * 0.5,
                         y2: -y as f64 * 0.5,
-                        color: self.get_col(sample, prev_sample),
+                        color: self.get_col(sample, &prev),
                     });
-                    prev_sample = sample;
+                    prev = *sample;
                 }
             });
         can.render(area, buf);

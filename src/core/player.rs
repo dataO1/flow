@@ -1,5 +1,6 @@
 use crate::core::player;
 use crate::core::reader;
+use itertools::Itertools;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
@@ -13,25 +14,26 @@ use super::reader::PacketBuffer;
 use super::reader::Reader;
 
 pub enum Message {
-    // Load a new file
+    /// Load a new file
     Load(String),
-    // Toggle playback
+    /// Toggle playback
     TogglePlay,
-    // Stop playback and return to beginning of the track
+    /// Stop playback and return to beginning of the track
     Stop,
-    // Start playing in "Cue" mode (on CueStop the player resumes to the point of the track, where
-    // Cue got invoked)
+    /// Start playing in "Cue" mode (on CueStop the player resumes to the point of the track, where
+    /// Cue got invoked)
     Cue,
-    // Stop playback and resume to start of Cue
+    /// Stop playback and resume to start of Cue
     CueStop,
-    // Close the player
+    /// Close the player
     Close,
+    /// Get missing preview Data. The parameter tells the player how many preview samples the app
+    /// already has
+    GetPreview(usize),
 }
 
-pub type WavePreview = Vec<f32>;
-
 pub enum Event {
-    UpdatePlayPos(WavePreview),
+    Preview(Box<PreviewBuffer>),
 }
 
 type Packet = usize;
@@ -43,9 +45,63 @@ pub enum PlayerState {
     Closed,
 }
 
+#[derive(Clone)]
+pub struct PreviewBuffer {
+    pub buf: Vec<f32>,
+}
+
+impl PreviewBuffer {
+    /// push packet to internal buffer
+    fn push(&mut self, packet: &PacketBuffer) {
+        let chunk_size = 10000;
+        // downsample packet
+        let mut preview_chunk: Vec<f32> = packet
+            .decoded
+            .samples()
+            .into_iter()
+            .chunks(chunk_size)
+            .into_iter()
+            .map(|chunk| {
+                let mut num = 0;
+                let mut sum = 0.0;
+                for samp in chunk {
+                    num += 1;
+                    sum += samp;
+                }
+                sum / num as f32
+            })
+            .collect();
+        self.buf.append(&mut preview_chunk);
+    }
+
+    /// length of the internal buffer
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    /// Returns a downsampled preview version
+    pub fn get_preview(&self, window_size: usize) -> &[f32] {
+        let buf_len = self.len();
+        // if buf_len - window size < 0 then left bound is 0
+        let l = std::cmp::max(0, buf_len - window_size);
+        // println!("l:{}, r:{}", l, buf_len);
+        &self.buf[l..buf_len]
+    }
+}
+
+impl Default for PreviewBuffer {
+    fn default() -> Self {
+        Self {
+            buf: vec![0.0; 1000],
+        }
+    }
+}
+
 pub struct Player {
     /// decoded packets
     sample_buffer: Vec<PacketBuffer>,
+    /// preview buffer
+    preview_buffer: Box<PreviewBuffer>,
     /// player state
     state: PlayerState,
 }
@@ -85,6 +141,7 @@ impl Player {
         Self {
             sample_buffer: decoded_packets,
             state: PlayerState::Unloaded,
+            preview_buffer: Box::new(PreviewBuffer::default()),
             // audio_output: None,
         }
     }
@@ -103,9 +160,9 @@ impl Player {
                 //------------------------------------------------------------------//
                 //                         Reader Messages                          //
                 //------------------------------------------------------------------//
-                Ok(reader::Event::Init((spec, duration))) => {
+                Ok(reader::Event::Init(spec)) => {
                     // We got the specs, so initiate the audio output
-                    let pa = Player::get_output(spec, duration);
+                    let pa = Player::get_output(spec);
                     audio_output.replace(pa);
                     self.load();
                 }
@@ -115,6 +172,7 @@ impl Player {
                 }
                 Ok(reader::Event::PacketDecoded(packet)) => {
                     // println!("received: {:#?}", &packet.frames);
+                    self.preview_buffer.push(&packet);
                     self.sample_buffer.push(packet);
                 }
                 Err(_) => { //
@@ -144,7 +202,7 @@ impl Player {
                     match self.play_buffer(out, pos) {
                         Ok(()) => {
                             player_event_out
-                                .send(player::Event::UpdatePlayPos(self.get_wave_preview(pos)))
+                                .send(player::Event::Preview(self.preview_buffer.clone()))
                                 .await;
                         }
                         Err(err) => {}
@@ -226,7 +284,7 @@ impl Player {
         Some(map)
     }
 
-    pub fn get_output(spec: SignalSpec, duration: u64) -> psimple::Simple {
+    pub fn get_output(spec: SignalSpec) -> psimple::Simple {
         let pa_spec = pulse::sample::Spec {
             format: pulse::sample::Format::FLOAT32NE,
             channels: spec.channels.count() as u8,
@@ -250,7 +308,7 @@ impl Player {
     }
 
     fn get_wave_preview(&self, pos: usize) -> Vec<f32> {
-        let preview_buff_size = 10000;
+        let preview_buff_size = 1;
         let left_bound = if pos < preview_buff_size {
             0
         } else {
