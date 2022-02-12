@@ -1,10 +1,14 @@
 use crate::core::reader;
 use crate::view::app;
+use libpulse_binding as pulse;
+use libpulse_simple_binding as psimple;
 
+use log::warn;
+use symphonia::core::audio::{Channels, RawSampleBuffer, SignalSpec};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
-use super::reader::{DecodedPacket, Reader};
+use super::reader::Reader;
 
 pub enum Message {
     // Load a new file
@@ -21,7 +25,17 @@ pub enum Message {
     // Close the player
     Close,
     /// New incoming decoded package
-    Decoded(Box<DecodedPacket>),
+    PacketDecoded(RawSampleBuffer<f32>),
+    /// Get specification and duration of audio
+    Spec((SignalSpec, u64)),
+}
+type Packet = usize;
+#[derive(Copy, Clone, PartialEq)]
+pub enum PlayerState {
+    Unloaded,
+    Loaded,
+    Playing(Packet),
+    Closed,
 }
 
 pub struct Player {
@@ -30,7 +44,9 @@ pub struct Player {
     /// handle for the reader thread
     reader_handle: JoinHandle<()>,
     /// decoded packets
-    decoded_packets: Vec<Box<DecodedPacket>>,
+    sample_buffer: Vec<RawSampleBuffer<f32>>,
+    /// player state
+    state: PlayerState,
 }
 
 impl Player {
@@ -49,9 +65,9 @@ impl Player {
         // Start the command handler thread
         let player_handle = tokio::spawn(async move {
             let mut player = Player::new(app_channel, reader_handle);
-            player.event_loop(&mut player_rx, reader_tx).await
+            player.event_loop(player_rx, reader_tx).await
         });
-        player_tx
+        player_tx.clone()
     }
 
     //------------------------------------------------------------------//
@@ -63,23 +79,51 @@ impl Player {
         Self {
             app_channel: app,
             reader_handle,
-            decoded_packets,
+            sample_buffer: decoded_packets,
+            state: PlayerState::Unloaded,
             // audio_output: None,
         }
     }
 
-    async fn event_loop(&mut self, rx: &mut Receiver<Message>, tx: Sender<reader::Message>) {
-        // Async event handlers here:
-        loop {
+    async fn event_loop(&mut self, mut rx: Receiver<Message>, tx: Sender<reader::Message>) {
+        let mut audio_output = None;
+        while self.state != PlayerState::Closed {
             // command handlers
             match rx.try_recv() {
                 Ok(Message::Load(path)) => {
                     tx.send(reader::Message::Load(path)).await;
                 }
-                Ok(Message::TogglePlay) => {}
-                Ok(Message::Decoded(packet)) => {
+                Ok(Message::Spec((spec, duration))) => {
+                    println!("got spec");
+                    let pa_spec = pulse::sample::Spec {
+                        format: pulse::sample::Format::FLOAT32NE,
+                        channels: spec.channels.count() as u8,
+                        rate: spec.rate,
+                    };
+                    assert!(pa_spec.is_valid());
+
+                    let pa_ch_map = Player::map_channels_to_pa_channelmap(spec.channels);
+                    let pa = psimple::Simple::new(
+                        None,                               // Use default server
+                        "Symphonia Player",                 // Application name
+                        pulse::stream::Direction::Playback, // Playback stream
+                        None,                               // Default playback device
+                        "Music",                            // Description of the stream
+                        &pa_spec,                           // Signal specificaiton
+                        pa_ch_map.as_ref(),                 // Channel map
+                        None,                               // Custom buffering attributes
+                    )
+                    .unwrap();
+                    audio_output.replace(pa);
+                }
+                Ok(Message::TogglePlay) => {
+                    if audio_output.is_some() {
+                        self.state = PlayerState::Playing(0)
+                    };
+                }
+                Ok(Message::PacketDecoded(packet)) => {
                     // println!("received: {:#?}", &packet.frames);
-                    self.decoded_packets.push(packet);
+                    self.sample_buffer.push(packet);
                 }
                 Ok(Message::Close) => break,
                 Ok(msg) => {}
@@ -88,7 +132,57 @@ impl Player {
                     // queue is empty, so just ignore this
                 }
             }
+            // play buffered packets
+            if let PlayerState::Playing(pos) = self.state {
+                if let Some(out) = &audio_output {
+                    self.play(out, pos);
+                }
+            }
         }
+    }
+    fn play(&mut self, out: &psimple::Simple, pos: usize) {
+        out.write(self.sample_buffer[pos].as_bytes());
+        self.state = PlayerState::Playing(pos + 1);
+    }
+    /// Maps a set of Symphonia `Channels` to a PulseAudio channel map.
+    fn map_channels_to_pa_channelmap(channels: Channels) -> Option<pulse::channelmap::Map> {
+        let mut map: pulse::channelmap::Map = Default::default();
+        map.init();
+        map.set_len(channels.count() as u8);
+
+        let is_mono = channels.count() == 1;
+
+        for (i, channel) in channels.iter().enumerate() {
+            map.get_mut()[i] = match channel {
+                Channels::FRONT_LEFT if is_mono => pulse::channelmap::Position::Mono,
+                Channels::FRONT_LEFT => pulse::channelmap::Position::FrontLeft,
+                Channels::FRONT_RIGHT => pulse::channelmap::Position::FrontRight,
+                Channels::FRONT_CENTRE => pulse::channelmap::Position::FrontCenter,
+                Channels::REAR_LEFT => pulse::channelmap::Position::RearLeft,
+                Channels::REAR_CENTRE => pulse::channelmap::Position::RearCenter,
+                Channels::REAR_RIGHT => pulse::channelmap::Position::RearRight,
+                Channels::LFE1 => pulse::channelmap::Position::Lfe,
+                Channels::FRONT_LEFT_CENTRE => pulse::channelmap::Position::FrontLeftOfCenter,
+                Channels::FRONT_RIGHT_CENTRE => pulse::channelmap::Position::FrontRightOfCenter,
+                Channels::SIDE_LEFT => pulse::channelmap::Position::SideLeft,
+                Channels::SIDE_RIGHT => pulse::channelmap::Position::SideRight,
+                Channels::TOP_CENTRE => pulse::channelmap::Position::TopCenter,
+                Channels::TOP_FRONT_LEFT => pulse::channelmap::Position::TopFrontLeft,
+                Channels::TOP_FRONT_CENTRE => pulse::channelmap::Position::TopFrontCenter,
+                Channels::TOP_FRONT_RIGHT => pulse::channelmap::Position::TopFrontRight,
+                Channels::TOP_REAR_LEFT => pulse::channelmap::Position::TopRearLeft,
+                Channels::TOP_REAR_CENTRE => pulse::channelmap::Position::TopRearCenter,
+                Channels::TOP_REAR_RIGHT => pulse::channelmap::Position::TopRearRight,
+                _ => {
+                    // If a Symphonia channel cannot map to a PulseAudio position then return None
+                    // because PulseAudio will not be able to open a stream with invalid channels.
+                    warn!("failed to map channel {:?} to output", channel);
+                    return None;
+                }
+            }
+        }
+
+        Some(map)
     }
 }
 

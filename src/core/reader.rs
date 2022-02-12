@@ -1,7 +1,7 @@
 use crate::core::player;
 use log::warn;
 use symphonia::core::{
-    audio::SampleBuffer,
+    audio::{AudioBufferRef, RawSampleBuffer, SampleBuffer, SignalSpec},
     codecs::{Decoder, DecoderOptions},
     errors::Error,
     formats::{FormatOptions, FormatReader, Packet},
@@ -18,11 +18,6 @@ use tokio::{
 //                              READER                              //
 //------------------------------------------------------------------//
 
-pub struct DecodedPacket {
-    pub packet: Packet,
-    pub frames: Vec<f32>,
-}
-
 #[derive(Copy, Clone, PartialEq)]
 enum ReaderState {
     Initializing,
@@ -36,7 +31,7 @@ pub enum Message {
     Exit,
 }
 pub enum Event {
-    DecodedPacket(DecodedPacket),
+    SentSampleBuffer(SampleBuffer<f32>),
 }
 
 pub struct Reader {
@@ -52,11 +47,14 @@ impl Reader {
             let mut reader = Box::new(Reader::default());
             let mut format_reader = None;
             let mut decoder = None;
+            let mut sent_spec = false;
             // messages
             while !reader.is_done() {
                 if let Ok(msg) = reader_message.try_recv() {
+                    println!("reader got message");
                     match msg {
                         Message::Load(file_path) => {
+                            println!("got load message");
                             reader.state = ReaderState::Loading(0);
                             format_reader = Some(Reader::get_reader(&file_path));
                             if let Some(r) = &mut format_reader {
@@ -74,10 +72,17 @@ impl Reader {
                 {
                     // loading loop
                     match reader.next_packet(r, d) {
-                        Ok(decoded_packet) => {
+                        Ok((sample_buff, spec, duration)) => {
                             // println!("decoded a packet");
+                            if !sent_spec {
+                                sent_spec = true;
+                                player_message
+                                    .send(player::Message::Spec((spec, duration)))
+                                    .await;
+                                println!("sent spec");
+                            }
                             player_message
-                                .send(player::Message::Decoded(Box::new(decoded_packet)))
+                                .send(player::Message::PacketDecoded(sample_buff))
                                 .await;
                         }
                         Err(err) => (),
@@ -132,7 +137,7 @@ impl Reader {
         &self,
         reader: &mut Box<dyn FormatReader>,
         decoder: &mut Box<dyn Decoder>,
-    ) -> Result<DecodedPacket, Error> {
+    ) -> Result<(RawSampleBuffer<f32>, SignalSpec, u64), Error> {
         let packet = reader.next_packet().unwrap();
         match decoder.decode(&packet) {
             Ok(decoded) => {
@@ -144,9 +149,9 @@ impl Reader {
                 // length! The capacity of the decoded buffer is constant for the life of the
                 // decoder, but the length is not.
                 let duration = decoded.capacity() as u64;
-                let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+                let mut sample_buf = RawSampleBuffer::<f32>::new(duration, spec);
                 sample_buf.copy_interleaved_ref(decoded.clone());
-                let samples = sample_buf.samples().to_owned();
+                // let samples = sample_buf.samples().to_owned();
                 // if audio_output.is_none() {
                 //
                 //     // Try to open the audio output.
@@ -164,10 +169,7 @@ impl Reader {
                 //         audio_output.write(decoded.clone()).unwrap()
                 //     }
                 // }
-                Ok(DecodedPacket {
-                    frames: samples,
-                    packet,
-                })
+                Ok((sample_buf, spec, duration))
             }
             Err(err) => {
                 // Decode errors are not fatal. Print the error message and try to decode the next
