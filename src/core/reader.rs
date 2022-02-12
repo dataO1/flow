@@ -77,7 +77,7 @@ impl Reader {
                             if !sent_spec {
                                 sent_spec = true;
                                 player_message
-                                    .send(player::Message::Spec((spec, duration)))
+                                    .send(player::Message::Init((spec, duration)))
                                     .await;
                                 println!("sent spec");
                             }
