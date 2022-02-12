@@ -122,7 +122,9 @@ impl App {
                 self.audio_buffer.push_latest_data(samples);
             }
             Event::Quit => std::process::exit(0),
-            Event::Unknown => todo!(),
+            Event::Unknown => {
+                //ignore unknown commands
+            }
         }
     }
 
