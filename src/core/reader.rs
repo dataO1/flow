@@ -56,10 +56,8 @@ impl Reader {
             // messages
             while !reader.is_done() {
                 if let Ok(msg) = reader_message.try_recv() {
-                    println!("reader got message");
                     match msg {
                         Message::Load(file_path) => {
-                            println!("got load message");
                             reader.state = ReaderState::Loading(0);
                             format_reader = Some(Reader::get_reader(&file_path));
                             if let Some(r) = &mut format_reader {
@@ -82,7 +80,6 @@ impl Reader {
                             if !sent_spec {
                                 sent_spec = true;
                                 player_out.send(reader::Event::Init((spec, duration))).await;
-                                println!("sent spec");
                             }
                             player_out
                                 .send(reader::Event::PacketDecoded(sample_buff))
