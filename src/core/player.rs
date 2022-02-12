@@ -53,6 +53,8 @@ pub struct PreviewBuffer {
 impl PreviewBuffer {
     /// push packet to internal buffer
     fn push(&mut self, packet: &PacketBuffer) {
+        // the number of packages to take the average of
+        // this kind of sets the "resolution"
         let chunk_size = 10000;
         // downsample packet
         let mut preview_chunk: Vec<f32> = packet
@@ -92,7 +94,7 @@ impl PreviewBuffer {
 impl Default for PreviewBuffer {
     fn default() -> Self {
         Self {
-            buf: vec![0.0; 1000],
+            buf: vec![0.0; 200],
         }
     }
 }

@@ -56,7 +56,7 @@ impl<'a> Widget for WaveWidget<'a> {
                     // fit sample (a value between 0 and 1) into area height
                     let x = x_min + i as i16;
                     let y = sample * (area.height as f32);
-                    // let y = y / 5.0;
+                    let y = 5. * y;
                     // draw main line
                     ctx.draw(&Line {
                         x1: x as f64,
