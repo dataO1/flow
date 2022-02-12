@@ -85,7 +85,9 @@ impl Reader {
                                 .send(player::Message::PacketDecoded(sample_buff))
                                 .await;
                         }
-                        Err(err) => (),
+                        Err(err) => {
+                            println!("{:#?}", err);
+                        }
                     }
                 };
             }
@@ -138,7 +140,7 @@ impl Reader {
         reader: &mut Box<dyn FormatReader>,
         decoder: &mut Box<dyn Decoder>,
     ) -> Result<(RawSampleBuffer<f32>, SignalSpec, u64), Error> {
-        let packet = reader.next_packet().unwrap();
+        let packet = reader.next_packet()?;
         match decoder.decode(&packet) {
             Ok(decoded) => {
                 // Get the audio buffer specification. This is a description of the decoded

@@ -28,6 +28,8 @@ pub enum Message {
     PacketDecoded(RawSampleBuffer<f32>),
     /// Get specification and duration of audio
     Spec((SignalSpec, u64)),
+    /// The reader is Done
+    ReaderDone,
 }
 type Packet = usize;
 #[derive(Copy, Clone, PartialEq)]
@@ -93,32 +95,24 @@ impl Player {
                 Ok(Message::Load(path)) => {
                     tx.send(reader::Message::Load(path)).await;
                 }
+                Ok(Message::ReaderDone) => {
+                    println!("reader done received");
+                }
                 Ok(Message::Spec((spec, duration))) => {
                     println!("got spec");
-                    let pa_spec = pulse::sample::Spec {
-                        format: pulse::sample::Format::FLOAT32NE,
-                        channels: spec.channels.count() as u8,
-                        rate: spec.rate,
-                    };
-                    assert!(pa_spec.is_valid());
-
-                    let pa_ch_map = Player::map_channels_to_pa_channelmap(spec.channels);
-                    let pa = psimple::Simple::new(
-                        None,                               // Use default server
-                        "Symphonia Player",                 // Application name
-                        pulse::stream::Direction::Playback, // Playback stream
-                        None,                               // Default playback device
-                        "Music",                            // Description of the stream
-                        &pa_spec,                           // Signal specificaiton
-                        pa_ch_map.as_ref(),                 // Channel map
-                        None,                               // Custom buffering attributes
-                    )
-                    .unwrap();
+                    let pa = Player::get_output(spec, duration);
                     audio_output.replace(pa);
                 }
                 Ok(Message::TogglePlay) => {
                     if audio_output.is_some() {
-                        self.state = PlayerState::Playing(0)
+                        if self.state == PlayerState::Loaded {
+                            self.state = PlayerState::Playing(0);
+                        } else {
+                            self.state = PlayerState::Loaded;
+                            if let Some(out) = &audio_output {
+                                self.pause(out);
+                            }
+                        }
                     };
                 }
                 Ok(Message::PacketDecoded(packet)) => {
@@ -143,6 +137,9 @@ impl Player {
     fn play(&mut self, out: &psimple::Simple, pos: usize) {
         out.write(self.sample_buffer[pos].as_bytes());
         self.state = PlayerState::Playing(pos + 1);
+    }
+    fn pause(&mut self, out: &psimple::Simple) {
+        out.flush();
     }
     /// Maps a set of Symphonia `Channels` to a PulseAudio channel map.
     fn map_channels_to_pa_channelmap(channels: Channels) -> Option<pulse::channelmap::Map> {
@@ -183,6 +180,29 @@ impl Player {
         }
 
         Some(map)
+    }
+
+    pub fn get_output(spec: SignalSpec, duration: u64) -> psimple::Simple {
+        let pa_spec = pulse::sample::Spec {
+            format: pulse::sample::Format::FLOAT32NE,
+            channels: spec.channels.count() as u8,
+            rate: spec.rate,
+        };
+        assert!(pa_spec.is_valid());
+
+        let pa_ch_map = Player::map_channels_to_pa_channelmap(spec.channels);
+        let pa = psimple::Simple::new(
+            None,                               // Use default server
+            "Symphonia Player",                 // Application name
+            pulse::stream::Direction::Playback, // Playback stream
+            None,                               // Default playback device
+            "Music",                            // Description of the stream
+            &pa_spec,                           // Signal specificaiton
+            pa_ch_map.as_ref(),                 // Channel map
+            None,                               // Custom buffering attributes
+        )
+        .unwrap();
+        pa
     }
 }
 
