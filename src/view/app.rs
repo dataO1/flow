@@ -1,16 +1,10 @@
 use crate::view::widgets::wave::WaveWidget;
-use crate::Event;
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
-use rand::Rng;
-use std::{
-    io,
-    sync::{Arc, Mutex},
-};
-use std::{thread, time};
+use std::io;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task::JoinHandle,
@@ -18,16 +12,23 @@ use tokio::{
 use tui::backend::{Backend, CrosstermBackend};
 use tui::{
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders},
     Frame, Terminal,
 };
 
-use crate::core::player::{Player, PlayerMessage};
+use crate::core::player::{Message, Player};
 
 use super::widgets::wave::DataBuffer;
 
 const MAX_BUFFER_SAMPLES: usize = 1000;
 
+#[derive(Clone, Debug)]
+pub enum Event {
+    TogglePlay,
+    LoadTrack(String),
+    Quit,
+    SamplePlayed(Vec<f32>),
+    Unknown,
+}
 /// Represents the App's State
 pub struct AppState {}
 
@@ -39,7 +40,7 @@ impl Default for AppState {
 
 pub struct App {
     /// a sender channel to the Player thread
-    player_handle: Sender<PlayerMessage>,
+    player_handle: Sender<Message>,
     /// shared audio buffer
     audio_buffer: DataBuffer,
     /// the receiver end of Events
@@ -112,10 +113,10 @@ impl App {
     async fn update(&mut self, ev: Event) {
         match ev {
             Event::TogglePlay => {
-                self.player_handle.send(PlayerMessage::TogglePlay).await;
+                self.player_handle.send(Message::TogglePlay).await;
             }
             Event::LoadTrack(track) => {
-                self.player_handle.send(PlayerMessage::Load(track)).await;
+                self.player_handle.send(Message::Load(track)).await;
             }
             Event::SamplePlayed(samples) => {
                 self.audio_buffer.push_latest_data(samples);

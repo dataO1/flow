@@ -1,10 +1,3 @@
-use aubio::{Notes, Tempo};
-use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions};
-
-use crate::core::reader::Reader;
-
-use super::player::Player;
-
 pub struct Analyzer {}
 
 impl Analyzer {

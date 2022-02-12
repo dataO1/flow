@@ -1,4 +1,3 @@
-use flow::core::analyzer::Analyzer;
 use flow::view::app::App;
 extern crate crossterm;
 

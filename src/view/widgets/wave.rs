@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::Color;
-use tui::widgets::canvas::{Canvas, Line, Map, MapResolution};
+use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
 pub struct WaveWidget<'a> {

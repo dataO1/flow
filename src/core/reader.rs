@@ -1,3 +1,4 @@
+use crate::core::player;
 use log::warn;
 use symphonia::core::{
     audio::SampleBuffer,
@@ -13,9 +14,6 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::core::player;
-
-use super::player::PlayerMessage;
 //------------------------------------------------------------------//
 //                              READER                              //
 //------------------------------------------------------------------//
@@ -32,6 +30,7 @@ enum ReaderState {
     Finished,
 }
 
+#[derive(Debug)]
 pub enum Message {
     Load(String),
     Exit,
@@ -46,7 +45,7 @@ pub struct Reader {
 
 impl Reader {
     pub fn spawn(
-        player_message: Sender<PlayerMessage>,
+        player_message: Sender<player::Message>,
         mut reader_message: Receiver<Message>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
@@ -78,7 +77,7 @@ impl Reader {
                         Ok(decoded_packet) => {
                             // println!("decoded a packet");
                             player_message
-                                .send(PlayerMessage::Decoded(Box::new(decoded_packet)))
+                                .send(player::Message::Decoded(Box::new(decoded_packet)))
                                 .await;
                         }
                         Err(err) => (),
