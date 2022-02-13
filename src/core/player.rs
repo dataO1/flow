@@ -53,6 +53,7 @@ pub enum PlayerState {
 pub struct PreviewBuffer {
     /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
     buf: Vec<f32>,
+    resample_factor: usize,
 }
 
 impl PreviewBuffer {
@@ -60,10 +61,22 @@ impl PreviewBuffer {
     fn push(&mut self, packet: &PacketBuffer) {
         // downsample packet
         let samples = packet.decoded.samples();
-        let num_samples = samples.len();
-        let sum: f32 = samples.iter().sum();
-        let preview_sample = sum / num_samples as f32;
-        self.buf.push(preview_sample);
+        let chunk_size = samples.len() / self.resample_factor;
+        let mut preview_samples: Vec<f32> = samples
+            .into_iter()
+            .chunks(chunk_size)
+            .into_iter()
+            .map(|chunk| {
+                let mut num = 0;
+                let mut sum: f32 = 0.0;
+                for sample in chunk {
+                    num += 1;
+                    sum += sample;
+                }
+                sum / num as f32
+            })
+            .collect();
+        self.buf.append(&mut preview_samples);
     }
 
     /// length of the internal buffer
@@ -72,13 +85,14 @@ impl PreviewBuffer {
     }
 
     /// Returns a downsampled preview version
-    pub fn get_live_preview(&self, target_resolution: usize, player_pos: usize) -> Vec<f32> {
+    pub fn get_live_preview(&self, target_size: usize, player_pos: usize) -> Vec<f32> {
+        let player_pos = player_pos * self.resample_factor;
         // check if enough sampes exist for target resolution
-        let diff = self.len() as isize - target_resolution as isize;
+        let diff = player_pos as isize - (target_size as isize / 2);
         if diff >= 0 {
             // if yes return buffer content
-            let l = player_pos as f32 - (target_resolution as f32 / 2.0);
-            let r = player_pos as f32 + (target_resolution as f32 / 2.0);
+            let l = player_pos as f32 - (target_size as f32 / 2.0);
+            let r = player_pos as f32 + (target_size as f32 / 2.0);
             self.buf[l as usize..r as usize].to_owned()
         } else {
             let diff = diff.abs() as usize;
@@ -88,11 +102,11 @@ impl PreviewBuffer {
         }
     }
 
-    pub fn get_preview(&self, target_resolution: usize) -> Vec<f32> {
-        if target_resolution > self.len() {
-            vec![0.0; target_resolution]
+    pub fn get_preview(&self, target_size: usize) -> Vec<f32> {
+        if target_size > self.len() {
+            vec![0.0; target_size]
         } else {
-            let chunk_size = (self.len() as f32 / target_resolution as f32).floor() as usize;
+            let chunk_size = (self.len() as f32 / target_size as f32).floor() as usize;
             let preview: Vec<f32> = self
                 .buf
                 .to_owned()
@@ -118,6 +132,7 @@ impl Default for PreviewBuffer {
     fn default() -> Self {
         Self {
             buf: vec![],
+            resample_factor: 2,
             // player_pos: 0,
         }
     }
