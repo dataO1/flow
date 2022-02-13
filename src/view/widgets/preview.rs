@@ -90,7 +90,7 @@ impl Widget for PreviewWidget {
                     // fit sample (a value between 0 and 1) into area height
                     let x = x_min + i as i16;
                     let y = sample * (area.height as f32);
-                    let y = 5. * y;
+                    let y = 10. * y;
                     // draw gray background
                     ctx.draw(&Line {
                         x1: x as f64,

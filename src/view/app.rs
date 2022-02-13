@@ -150,8 +150,8 @@ impl App {
             .constraints(
                 [
                     Constraint::Percentage(5),
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(75),
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(65),
                 ]
                 .as_ref(),
             )

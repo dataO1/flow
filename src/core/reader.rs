@@ -100,7 +100,7 @@ impl Reader {
                             }
                         }
                         Err(err) => {
-                            println!("{:#?}", err);
+                            reader.state = ReaderState::Finished;
                         }
                     }
                 };
