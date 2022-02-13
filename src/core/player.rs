@@ -36,7 +36,9 @@ pub enum Message {
 }
 
 pub enum Event {
-    // Preview(Box<PreviewBuffer>),
+    // Preview(Box<usizeBuffer>),
+    /// Played x messages
+    PlayedPackage(usize),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -52,20 +54,20 @@ pub struct FrameBuffer {
     pub packets: Vec<PacketBuffer>,
     /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
     preview_buffer: Vec<f32>,
-    /// current playing packet of the player
-    player_pos: usize,
+    // current playing packet of the player
+    // player_pos: usize,
 }
 
 impl FrameBuffer {
     /// push packet to internal buffer
-    fn push(&mut self, packet: PacketBuffer) {
+    fn push(&mut self, packet: &PacketBuffer) {
         // downsample packet
         let samples = packet.decoded.samples();
         let num_samples = samples.len();
         let sum: f32 = samples.iter().sum();
         let preview_sample = sum / num_samples as f32;
         // self.buf.append(&mut preview_chunk);
-        self.packets.push(packet);
+        // self.packets.push(packet);
         self.preview_buffer.push(preview_sample);
     }
 
@@ -75,13 +77,13 @@ impl FrameBuffer {
     }
 
     /// Returns a downsampled preview version
-    pub fn get_preview(&self, target_resolution: usize) -> Vec<f32> {
+    pub fn get_live_preview(&self, target_resolution: usize, player_pos: usize) -> Vec<f32> {
         // check if enough sampes exist for target resolution
         let diff = self.len() as isize - target_resolution as isize;
         if diff >= 0 {
             // if yes return buffer content
-            let l = self.player_pos as f32 - (target_resolution as f32 / 2.0);
-            let r = self.player_pos as f32 + (target_resolution as f32 / 2.0);
+            let l = player_pos as f32 - (target_resolution as f32 / 2.0);
+            let r = player_pos as f32 + (target_resolution as f32 / 2.0);
             self.preview_buffer[l as usize..r as usize].to_owned()
         } else {
             let diff = diff.abs() as usize;
@@ -91,14 +93,14 @@ impl FrameBuffer {
         }
     }
 
-    /// advance the buffer by one packet
-    pub fn advance_position(&mut self) {
-        self.player_pos += 1;
-    }
+    // /// advance the buffer by one packet
+    // pub fn advance_position(&mut self) {
+    //     self.player_pos += 1;
+    // }
 
-    pub fn get_curr_raw(&self) -> &RawSampleBuffer<f32> {
-        &self.packets[self.player_pos].raw
-    }
+    // pub fn get_curr_raw(&self) -> &RawSampleBuffer<f32> {
+    //     &self.packets[self.player_pos].raw
+    // }
 }
 
 impl Default for FrameBuffer {
@@ -106,7 +108,7 @@ impl Default for FrameBuffer {
         Self {
             packets: vec![],
             preview_buffer: vec![],
-            player_pos: 0,
+            // player_pos: 0,
         }
     }
 }
@@ -114,8 +116,11 @@ impl Default for FrameBuffer {
 pub struct Player {
     /// frame buffer
     frame_buffer: Arc<Mutex<FrameBuffer>>,
+    raw_buffer: Vec<RawSampleBuffer<f32>>,
     /// player state
     state: PlayerState,
+    /// player position in packages
+    position: usize,
 }
 
 impl Player {
@@ -153,6 +158,8 @@ impl Player {
         Self {
             state: PlayerState::Unloaded,
             frame_buffer: preview_buffer,
+            position: 0,
+            raw_buffer: vec![],
         }
     }
 
@@ -182,7 +189,8 @@ impl Player {
                 }
                 Ok(reader::Event::PacketDecoded(packet)) => {
                     // println!("received: {:#?}", &packet.frames);
-                    self.frame_buffer.lock().unwrap().push(packet);
+                    self.frame_buffer.lock().unwrap().push(&packet);
+                    self.raw_buffer.push(packet.raw);
                 }
                 Err(_) => { //
                 }
@@ -210,10 +218,7 @@ impl Player {
                 if let Some(out) = &audio_output {
                     match self.play_buffer(out) {
                         Ok(()) => {
-                            // player_event_out
-                            //     .send(player::Event::Preview(self.preview_buffer.clone()))
-                            //     .await;
-                            ()
+                            player_event_out.send(player::Event::PlayedPackage(1)).await;
                         }
                         Err(err) => {}
                     }
@@ -249,9 +254,8 @@ impl Player {
     }
 
     fn play_buffer(&mut self, out: &psimple::Simple) -> Result<(), PAErr> {
-        let mut frame_buffer = self.frame_buffer.lock().unwrap();
-        frame_buffer.advance_position();
-        out.write(frame_buffer.get_curr_raw().as_bytes())
+        self.position += 1;
+        out.write(self.raw_buffer[self.position].as_bytes())
         // out.drain()
     }
 

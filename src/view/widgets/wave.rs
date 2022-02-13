@@ -10,11 +10,15 @@ use crate::core::player::FrameBuffer;
 
 pub struct WaveWidget {
     preview_buf: Arc<Mutex<FrameBuffer>>,
+    player_pos: usize,
 }
 
 impl WaveWidget {
-    pub fn new(preview_buf: Arc<Mutex<FrameBuffer>>) -> Self {
-        Self { preview_buf }
+    pub fn new(preview_buf: Arc<Mutex<FrameBuffer>>, player_pos: usize) -> Self {
+        Self {
+            preview_buf,
+            player_pos,
+        }
     }
 
     /// tries to detect transients and gives them color
@@ -57,7 +61,7 @@ impl Widget for WaveWidget {
                 ctx.layer();
                 // for i in (1..(area.width as usize)) {
                 for (i, sample) in preview_buf
-                    .get_preview(area.width as usize)
+                    .get_live_preview(area.width as usize, self.player_pos)
                     .into_iter()
                     .take(area.width as usize)
                     .enumerate()

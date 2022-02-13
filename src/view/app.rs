@@ -41,12 +41,14 @@ impl Default for AppState {
 
 pub struct App {
     frame_buf: Arc<Mutex<FrameBuffer>>,
+    player_position: usize,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
             frame_buf: Arc::new(Mutex::new(FrameBuffer::default())),
+            player_position: 0,
         }
     }
 }
@@ -61,8 +63,8 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         // create all message passing channels
         let (key_events_out, mut key_events_in) = channel::<Event>(10);
-        let (player_events_out, mut player_events_in) = channel::<player::Event>(10000);
-        let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
+        let (player_events_out, mut player_events_in) = channel::<player::Event>(1);
+        let (player_messages_out, player_messages_in) = channel::<player::Message>(1);
         // spawn the input thread
         let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
         let player_handle = Player::spawn(
@@ -134,8 +136,9 @@ impl App {
         };
         if let Ok(ev) = player_events_in.try_recv() {
             match ev {
-                // player::Event::Preview(preview_buf) => {
-                //     self.preview_buf = preview_buf;
+                player::Event::PlayedPackage(num_packets) => {
+                    self.player_position += num_packets;
+                }
                 _ => {}
             }
         }
@@ -147,7 +150,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
             .split(f.size());
-        let wave_widget = WaveWidget::new(Arc::clone(&self.frame_buf));
+        let wave_widget = WaveWidget::new(Arc::clone(&self.frame_buf), self.player_position);
 
         f.render_widget(wave_widget, chunks[0]);
     }
