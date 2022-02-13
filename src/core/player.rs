@@ -175,7 +175,6 @@ impl Player {
     pub fn spawn(
         player_message_in: Receiver<player::Message>,
         player_event_out: Sender<player::Event>,
-        frame_buffer: Arc<Mutex<PreviewBuffer>>,
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
         // Start the command handler thread

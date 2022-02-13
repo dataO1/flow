@@ -39,7 +39,7 @@ impl Analyzer {
             analyzer.init_decoder();
             loop {
                 match analyzer.decode() {
-                    Ok(sample_buffer) => analyzer.analyze(sample_buffer),
+                    Ok(sample_buffer) => analyzer.analyze_sample_buffer(sample_buffer),
                     Err(_) => {
                         // Error decoding
                         // Probably done here
@@ -124,7 +124,7 @@ impl Analyzer {
         };
     }
 
-    fn analyze(&self, sample_buffer: SampleBuffer<f32>) {
+    fn analyze_sample_buffer(&self, sample_buffer: SampleBuffer<f32>) {
         self.preview_buffer.lock().unwrap().push(&sample_buffer);
     }
 }

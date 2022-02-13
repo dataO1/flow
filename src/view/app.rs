@@ -8,6 +8,7 @@ use crossterm::{
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
 use std::{
+    collections::HashMap,
     io,
     sync::{Arc, Mutex},
 };
@@ -26,7 +27,10 @@ use tui::{
 
 use crate::core::player::{Message, Player};
 
-use super::widgets::preview::{PreviewType, PreviewWidget};
+use super::{
+    model::track::Track,
+    widgets::preview::{PreviewType, PreviewWidget},
+};
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -40,6 +44,8 @@ pub struct App {
     frame_buf: Arc<Mutex<PreviewBuffer>>,
     player_position: usize,
     status_text: String,
+    tracks: HashMap<String, Track>,
+    currently_loaded_track: Option<String>,
 }
 
 impl Default for App {
@@ -48,6 +54,8 @@ impl Default for App {
             frame_buf: Arc::new(Mutex::new(PreviewBuffer::default())),
             player_position: 0,
             status_text: String::from(""),
+            tracks: HashMap::new(),
+            currently_loaded_track: None,
         }
     }
 }
@@ -60,28 +68,33 @@ impl App {
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
-        // create all message passing channels
+        // create message passing channels
         let (key_events_out, mut key_events_in) = channel::<Event>(10);
         let (player_events_out, mut player_events_in) = channel::<player::Event>(10);
         let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         // spawn the input thread
         let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
-        let player_handle = Player::spawn(
-            player_messages_in,
-            player_events_out,
-            Arc::clone(&self.frame_buf),
-        );
-        let analyzer_handle = Analyzer::spawn(
-            String::from("/home/data01/Downloads/the_rush.mp3"),
-            Arc::clone(&self.frame_buf),
-        );
-        // let tick_rate = Duration::from_millis(5);
-        // let mut last_tick = Instant::now();
+        // spawn player
+        let player_handle = Player::spawn(player_messages_in, player_events_out);
+        // list tracks TODO: read directory for files
+        let files_paths = [
+            "/home/data01/Music/Mr. Frenkie - Bass Symptom.mp3",
+            "/home/data01/Downloads/the_rush.mp3",
+        ];
+        for file_path in files_paths {
+            let file_path = String::from(file_path);
+            self.tracks
+                .insert(file_path.clone(), Track::new(file_path.clone()));
+        }
+        // spawn analyzers
+        for track in &mut self.tracks.values() {
+            Analyzer::spawn(
+                track.file_path.to_owned(),
+                Arc::clone(&track.preview_buffer),
+            );
+        }
         loop {
-            // if last_tick.elapsed() >= tick_rate {
             terminal.draw(|f| self.layout(f))?;
-            //     last_tick = Instant::now();
-            // }
             self.update(
                 &mut key_events_in,
                 player_messages_out.clone(),
@@ -127,9 +140,13 @@ impl App {
                     player_messages_out.send(Message::TogglePlay).await;
                     self.status_text = String::from("TogglePlay");
                 }
-                Event::LoadTrack(track) => {
-                    player_messages_out.send(Message::Load(track)).await;
-                    self.status_text = String::from("Loaded track")
+                Event::LoadTrack(file_path) => {
+                    player_messages_out
+                        .send(Message::Load(file_path.clone()))
+                        .await;
+                    self.currently_loaded_track = Some(file_path);
+                    self.status_text = String::from("Loaded track");
+                    self.player_position = 0;
                 }
                 Event::Quit => std::process::exit(0),
                 Event::Unknown => {
@@ -160,19 +177,22 @@ impl App {
                 .as_ref(),
             )
             .split(f.size());
-        let live_preview = PreviewWidget::new(
-            PreviewType::LivePreview,
-            Arc::clone(&self.frame_buf),
-            self.player_position,
-        );
-        let preview = PreviewWidget::new(
-            PreviewType::Preview,
-            Arc::clone(&self.frame_buf),
-            self.player_position,
-        );
+        if let Some(path) = &self.currently_loaded_track {
+            let curr_track = self.tracks.get(path).unwrap();
+            let live_preview = PreviewWidget::new(
+                PreviewType::LivePreview,
+                Arc::clone(&curr_track.preview_buffer),
+                self.player_position,
+            );
+            let preview = PreviewWidget::new(
+                PreviewType::Preview,
+                Arc::clone(&curr_track.preview_buffer),
+                self.player_position,
+            );
 
-        f.render_widget(preview, chunks[1]);
-        f.render_widget(live_preview, chunks[0]);
+            f.render_widget(preview, chunks[1]);
+            f.render_widget(live_preview, chunks[0]);
+        }
 
         let status_bar = Paragraph::new(self.status_text.clone())
             .block(
