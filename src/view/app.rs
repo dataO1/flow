@@ -1,5 +1,5 @@
 use crate::{
-    core::player::{self, PreviewBuffer},
+    core::player::{self, FrameBuffer},
     view::widgets::wave::WaveWidget,
 };
 use crossterm::{
@@ -7,7 +7,10 @@ use crossterm::{
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
-use std::io;
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task::JoinHandle,
@@ -19,8 +22,6 @@ use tui::{
 };
 
 use crate::core::player::{Message, Player};
-
-const MAX_BUFFER_SAMPLES: usize = 1000;
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -39,13 +40,13 @@ impl Default for AppState {
 }
 
 pub struct App {
-    preview_buf: Box<PreviewBuffer>,
+    frame_buf: Arc<Mutex<FrameBuffer>>,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
-            preview_buf: Box::new(PreviewBuffer::default()),
+            frame_buf: Arc::new(Mutex::new(FrameBuffer::default())),
         }
     }
 }
@@ -64,7 +65,11 @@ impl App {
         let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         // spawn the input thread
         let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
-        let player_handle = Player::spawn(player_messages_in, player_events_out);
+        let player_handle = Player::spawn(
+            player_messages_in,
+            player_events_out,
+            Arc::clone(&self.frame_buf),
+        );
         // execute main UI loop
         loop {
             // draw to terminal
@@ -129,9 +134,9 @@ impl App {
         };
         if let Ok(ev) = player_events_in.try_recv() {
             match ev {
-                player::Event::Preview(preview_buf) => {
-                    self.preview_buf = preview_buf;
-                }
+                // player::Event::Preview(preview_buf) => {
+                //     self.preview_buf = preview_buf;
+                _ => {}
             }
         }
     }
@@ -142,7 +147,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
             .split(f.size());
-        let wave_widget = WaveWidget::new(&self.preview_buf);
+        let wave_widget = WaveWidget::new(Arc::clone(&self.frame_buf));
 
         f.render_widget(wave_widget, chunks[0]);
     }

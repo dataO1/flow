@@ -1,11 +1,14 @@
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use crate::core::player;
 use crate::core::reader;
-use itertools::Itertools;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
 use log::warn;
 use pulse::error::PAErr;
+use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
@@ -33,77 +36,84 @@ pub enum Message {
 }
 
 pub enum Event {
-    Preview(Box<PreviewBuffer>),
+    // Preview(Box<PreviewBuffer>),
 }
 
-type Packet = usize;
 #[derive(Copy, Clone, PartialEq)]
 pub enum PlayerState {
     Unloaded,
-    Paused(Packet),
-    Playing(Packet),
+    Paused,
+    Playing,
     Closed,
 }
 
-#[derive(Clone)]
-pub struct PreviewBuffer {
-    pub buf: Vec<f32>,
+pub struct FrameBuffer {
+    /// Original Source Packets
+    pub packets: Vec<PacketBuffer>,
+    /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
+    preview_buffer: Vec<f32>,
+    /// current playing packet of the player
+    player_pos: usize,
 }
 
-impl PreviewBuffer {
+impl FrameBuffer {
     /// push packet to internal buffer
-    fn push(&mut self, packet: &PacketBuffer) {
-        // the number of packages to take the average of
-        // this kind of sets the "resolution"
-        let chunk_size = 10000;
+    fn push(&mut self, packet: PacketBuffer) {
         // downsample packet
-        let mut preview_chunk: Vec<f32> = packet
-            .decoded
-            .samples()
-            .into_iter()
-            .chunks(chunk_size)
-            .into_iter()
-            .map(|chunk| {
-                let mut num = 0;
-                let mut sum = 0.0;
-                for samp in chunk {
-                    num += 1;
-                    sum += samp;
-                }
-                sum / num as f32
-            })
-            .collect();
-        self.buf.append(&mut preview_chunk);
+        let samples = packet.decoded.samples();
+        let num_samples = samples.len();
+        let sum: f32 = samples.iter().sum();
+        let preview_sample = sum / num_samples as f32;
+        // self.buf.append(&mut preview_chunk);
+        self.packets.push(packet);
+        self.preview_buffer.push(preview_sample);
     }
 
     /// length of the internal buffer
     pub fn len(&self) -> usize {
-        self.buf.len()
+        self.preview_buffer.len()
     }
 
     /// Returns a downsampled preview version
-    pub fn get_preview(&self, window_size: usize) -> &[f32] {
-        let buf_len = self.len();
-        // if buf_len - window size < 0 then left bound is 0
-        let l = std::cmp::max(0, buf_len - window_size);
-        // println!("l:{}, r:{}", l, buf_len);
-        &self.buf[l..buf_len]
+    pub fn get_preview(&self, target_resolution: usize) -> Vec<f32> {
+        // check if enough sampes exist for target resolution
+        let diff = self.len() as isize - target_resolution as isize;
+        if diff >= 0 {
+            // if yes return buffer content
+            let l = self.player_pos as f32 - (target_resolution as f32 / 2.0);
+            let r = self.player_pos as f32 + (target_resolution as f32 / 2.0);
+            self.preview_buffer[l as usize..r as usize].to_owned()
+        } else {
+            let diff = diff.abs() as usize;
+            let mut padding = vec![0.0 as f32; diff];
+            padding.append(&mut self.preview_buffer.to_vec());
+            padding.to_owned()
+        }
+    }
+
+    /// advance the buffer by one packet
+    pub fn advance_position(&mut self) {
+        self.player_pos += 1;
+    }
+
+    pub fn get_curr_raw(&self) -> &RawSampleBuffer<f32> {
+        &self.packets[self.player_pos].raw
     }
 }
 
-impl Default for PreviewBuffer {
+impl Default for FrameBuffer {
     fn default() -> Self {
         Self {
-            buf: vec![0.0; 200],
+            packets: vec![],
+            preview_buffer: vec![],
+            player_pos: 0,
         }
     }
 }
 
 pub struct Player {
-    /// decoded packets
-    sample_buffer: Vec<PacketBuffer>,
-    /// preview buffer
-    preview_buffer: Box<PreviewBuffer>,
+    /// frame buffer
+    frame_buffer: Arc<Mutex<FrameBuffer>>,
     /// player state
     state: PlayerState,
 }
@@ -118,6 +128,7 @@ impl Player {
     pub fn spawn(
         player_message_in: Receiver<player::Message>,
         player_event_out: Sender<player::Event>,
+        frame_buffer: Arc<Mutex<FrameBuffer>>,
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
         let (reader_message_out, reader_message_rx) = channel::<reader::Message>(1000);
@@ -125,7 +136,7 @@ impl Player {
         let reader_handle = Reader::spawn(reader_event_tx, reader_message_rx);
         // Start the command handler thread
         tokio::spawn(async move {
-            let mut player = Player::new(reader_handle);
+            let mut player = Player::new(reader_handle, frame_buffer);
             player
                 .event_loop(
                     player_message_in,
@@ -137,14 +148,11 @@ impl Player {
         })
     }
 
-    fn new(reader_handle: JoinHandle<()>) -> Self {
+    fn new(reader_handle: JoinHandle<()>, preview_buffer: Arc<Mutex<FrameBuffer>>) -> Self {
         // the frame buffer. TODO: use sensible vector sizes
-        let decoded_packets = vec![];
         Self {
-            sample_buffer: decoded_packets,
             state: PlayerState::Unloaded,
-            preview_buffer: Box::new(PreviewBuffer::default()),
-            // audio_output: None,
+            frame_buffer: preview_buffer,
         }
     }
 
@@ -174,8 +182,7 @@ impl Player {
                 }
                 Ok(reader::Event::PacketDecoded(packet)) => {
                     // println!("received: {:#?}", &packet.frames);
-                    self.preview_buffer.push(&packet);
-                    self.sample_buffer.push(packet);
+                    self.frame_buffer.lock().unwrap().push(packet);
                 }
                 Err(_) => { //
                 }
@@ -199,13 +206,14 @@ impl Player {
                 }
             }
             // play buffered packets
-            if let PlayerState::Playing(pos) = self.state {
+            if let PlayerState::Playing = self.state {
                 if let Some(out) = &audio_output {
-                    match self.play_buffer(out, pos) {
+                    match self.play_buffer(out) {
                         Ok(()) => {
-                            player_event_out
-                                .send(player::Event::Preview(self.preview_buffer.clone()))
-                                .await;
+                            // player_event_out
+                            //     .send(player::Event::Preview(self.preview_buffer.clone()))
+                            //     .await;
+                            ()
                         }
                         Err(err) => {}
                     }
@@ -214,7 +222,7 @@ impl Player {
         }
     }
     fn load(&mut self) {
-        self.state = PlayerState::Paused(0);
+        self.state = PlayerState::Paused;
     }
 
     fn pause(&mut self, out: &psimple::Simple) {
@@ -225,9 +233,9 @@ impl Player {
         // check if audio output is valid
         if let Some(out) = &audio_output {
             match self.state {
-                PlayerState::Paused(x) => self.state = PlayerState::Playing(x),
-                PlayerState::Playing(x) => {
-                    self.state = PlayerState::Paused(x);
+                PlayerState::Paused => self.state = PlayerState::Playing,
+                PlayerState::Playing => {
+                    self.state = PlayerState::Paused;
                     self.pause(out);
                 }
                 PlayerState::Unloaded => {
@@ -240,9 +248,11 @@ impl Player {
         };
     }
 
-    fn play_buffer(&mut self, out: &psimple::Simple, pos: usize) -> Result<(), PAErr> {
-        self.state = PlayerState::Playing(pos + 1);
-        out.write(self.sample_buffer[pos].raw.as_bytes())
+    fn play_buffer(&mut self, out: &psimple::Simple) -> Result<(), PAErr> {
+        let mut frame_buffer = self.frame_buffer.lock().unwrap();
+        frame_buffer.advance_position();
+        out.write(frame_buffer.get_curr_raw().as_bytes())
+        // out.drain()
     }
 
     /// Maps a set of Symphonia `Channels` to a PulseAudio channel map.
@@ -307,23 +317,6 @@ impl Player {
         )
         .unwrap();
         pa
-    }
-
-    fn get_wave_preview(&self, pos: usize) -> Vec<f32> {
-        let preview_buff_size = 1;
-        let left_bound = if pos < preview_buff_size {
-            0
-        } else {
-            preview_buff_size
-        };
-        let right_bound = std::cmp::min(pos + preview_buff_size, self.sample_buffer.len());
-        // here, we need a SampleBuffer now a RawSampleBuffer, which doesnt have the .samples()
-        // method
-        let mut preview_buffer = vec![];
-        for packet in self.sample_buffer[left_bound..right_bound].into_iter() {
-            preview_buffer.extend_from_slice(packet.decoded.samples());
-        }
-        preview_buffer
     }
 }
 

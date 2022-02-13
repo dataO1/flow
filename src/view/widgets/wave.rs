@@ -1,22 +1,20 @@
-use itertools::Itertools;
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::Color;
 use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
-use crate::core::player::PreviewBuffer;
+use crate::core::player::FrameBuffer;
 
-pub struct WaveWidget<'a> {
-    preview_buf: &'a PreviewBuffer,
+pub struct WaveWidget {
+    preview_buf: Arc<Mutex<FrameBuffer>>,
 }
 
-impl<'a> WaveWidget<'a> {
-    pub fn new(waveform: &'a PreviewBuffer) -> Self {
-        Self {
-            preview_buf: waveform,
-        }
+impl WaveWidget {
+    pub fn new(preview_buf: Arc<Mutex<FrameBuffer>>) -> Self {
+        Self { preview_buf }
     }
 
     /// tries to detect transients and gives them color
@@ -31,15 +29,15 @@ impl<'a> WaveWidget<'a> {
     }
 }
 
-impl<'a> Widget for WaveWidget<'a> {
-    fn render(mut self, area: Rect, buf: &mut Buffer) {
+impl Widget for WaveWidget {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
         let x_max = (area.width as f64 / 2.0).floor() as i16;
         let x_min = -x_max;
         let y_max = (area.height as f64 / 2.0).floor() as i16;
         let y_min = -y_max;
-        let preview_buf = self.preview_buf.get_preview(area.width as usize);
+        let preview_buf = self.preview_buf.lock().unwrap();
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let can = Canvas::default()
@@ -48,9 +46,22 @@ impl<'a> Widget for WaveWidget<'a> {
             .y_bounds([y_min as f64, y_max as f64])
             .paint(|ctx| {
                 let mut prev = 0.0 as f32;
+                // center line
+                ctx.draw(&Line {
+                    x1: 0.0,
+                    x2: 0.0,
+                    y1: y_min as f64,
+                    y2: y_max as f64,
+                    color: Color::Red,
+                });
                 ctx.layer();
                 // for i in (1..(area.width as usize)) {
-                for (i, sample) in preview_buf.into_iter().enumerate() {
+                for (i, sample) in preview_buf
+                    .get_preview(area.width as usize)
+                    .into_iter()
+                    .take(area.width as usize)
+                    .enumerate()
+                {
                     // determine x
                     // let x = ((i * chunk_size) as f32) - (preview_buf_len as f32 / 2.0);
                     // fit sample (a value between 0 and 1) into area height
@@ -71,9 +82,9 @@ impl<'a> Widget for WaveWidget<'a> {
                         x2: x as f64,
                         y1: y as f64 * 0.5,
                         y2: -y as f64 * 0.5,
-                        color: self.get_col(sample, &prev),
+                        color: self.get_col(&sample, &prev),
                     });
-                    prev = *sample;
+                    prev = sample;
                 }
             });
         can.render(area, buf);
