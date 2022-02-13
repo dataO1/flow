@@ -175,8 +175,8 @@ impl App {
             self.player_position,
         );
 
-        f.render_widget(preview, chunks[1]);
-        f.render_widget(live_preview, chunks[0]);
+        // f.render_widget(preview, chunks[1]);
+        // f.render_widget(live_preview, chunks[0]);
 
         let status_bar = Paragraph::new(self.status_text.clone())
             .block(

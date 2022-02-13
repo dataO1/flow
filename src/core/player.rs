@@ -11,6 +11,13 @@ use log::warn;
 use pulse::error::PAErr;
 use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
+use symphonia::core::codecs::Decoder;
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::FormatReader;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
@@ -148,13 +155,14 @@ impl Default for PreviewBuffer {
 }
 
 pub struct Player {
-    /// frame buffer
-    frame_buffer: Arc<Mutex<PreviewBuffer>>,
-    raw_buffer: Vec<RawSampleBuffer<f32>>,
     /// player state
     state: PlayerState,
     /// player position in packages
     position: usize,
+    reader: Option<Box<dyn FormatReader>>,
+    decoder: Option<Box<dyn Decoder>>,
+    output: Option<psimple::Simple>,
+    spec: Option<SignalSpec>,
 }
 
 impl Player {
@@ -170,30 +178,22 @@ impl Player {
         frame_buffer: Arc<Mutex<PreviewBuffer>>,
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
-        let (reader_message_out, reader_message_rx) = channel::<reader::Message>(1000);
-        let (reader_event_tx, reader_event_in) = channel::<reader::Event>(1000);
-        let reader_handle = Reader::spawn(reader_event_tx, reader_message_rx);
         // Start the command handler thread
         tokio::spawn(async move {
-            let mut player = Player::new(reader_handle, frame_buffer);
-            player
-                .event_loop(
-                    player_message_in,
-                    player_event_out,
-                    reader_message_out,
-                    reader_event_in,
-                )
-                .await
+            let mut player = Player::new();
+            player.event_loop(player_message_in, player_event_out).await
         })
     }
 
-    fn new(reader_handle: JoinHandle<()>, preview_buffer: Arc<Mutex<PreviewBuffer>>) -> Self {
+    fn new() -> Self {
         // the frame buffer. TODO: use sensible vector sizes
         Self {
             state: PlayerState::Unloaded,
-            frame_buffer: preview_buffer,
             position: 0,
-            raw_buffer: vec![],
+            reader: None,
+            decoder: None,
+            output: None,
+            spec: None,
         }
     }
 
@@ -201,44 +201,22 @@ impl Player {
         &mut self,
         mut player_message_in: Receiver<Message>,
         player_event_out: Sender<player::Event>,
-        reader_message_out: Sender<reader::Message>,
-        mut reader_event_in: Receiver<reader::Event>,
     ) {
-        let mut audio_output = None;
         while self.state != PlayerState::Closed {
             // command handlers
-            match reader_event_in.try_recv() {
-                //------------------------------------------------------------------//
-                //                         Reader Messages                          //
-                //------------------------------------------------------------------//
-                Ok(reader::Event::Init(spec)) => {
-                    // We got the specs, so initiate the audio output
-                    let pa = Player::get_output(spec);
-                    audio_output.replace(pa);
-                    self.load();
-                }
-                Ok(reader::Event::ReaderDone) => {
-                    //TODO: close the thread accordingly
-                    println!("reader done received");
-                }
-                Ok(reader::Event::PacketDecoded(packet)) => {
-                    // println!("received: {:#?}", &packet.frames);
-                    self.frame_buffer.lock().unwrap().push(&packet);
-                    self.raw_buffer.push(packet.raw);
-                }
-                Err(_) => { //
-                }
-            };
             match player_message_in.try_recv() {
                 //------------------------------------------------------------------//
                 //                           App Messages                           //
                 //------------------------------------------------------------------//
                 Ok(Message::Load(path)) => {
                     // Communicate to the reader, that we want to load a track
-                    reader_message_out.send(reader::Message::Load(path)).await;
+                    self.state = PlayerState::Paused;
+                    self.init_reader(path);
+                    self.init_decoder();
+                    self.init_output();
                 }
                 Ok(Message::TogglePlay) => {
-                    self.toggle_play(&audio_output);
+                    self.toggle_play();
                 }
                 Ok(Message::Close) => break,
                 Ok(msg) => {}
@@ -249,13 +227,9 @@ impl Player {
             }
             // play buffered packets
             if let PlayerState::Playing = self.state {
-                if let Some(out) = &audio_output {
-                    match self.play_buffer(out) {
-                        Ok(()) => {
-                            player_event_out.send(player::Event::PlayedPackage(1)).await;
-                        }
-                        Err(err) => {}
-                    }
+                if let Some(out) = &mut self.output {
+                    self.play();
+                    player_event_out.send(player::Event::PlayedPackage(1)).await;
                 }
             }
         }
@@ -264,18 +238,20 @@ impl Player {
         self.state = PlayerState::Paused;
     }
 
-    fn pause(&mut self, out: &psimple::Simple) {
-        out.flush();
+    fn pause(&mut self) {
+        if let Some(out) = &mut self.output {
+            out.flush();
+        }
     }
 
-    fn toggle_play(&mut self, audio_output: &Option<psimple::Simple>) {
+    fn toggle_play(&mut self) {
         // check if audio output is valid
-        if let Some(out) = &audio_output {
+        if let Some(out) = &mut self.output {
             match self.state {
                 PlayerState::Paused => self.state = PlayerState::Playing,
                 PlayerState::Playing => {
                     self.state = PlayerState::Paused;
-                    self.pause(out);
+                    self.pause();
                 }
                 PlayerState::Unloaded => {
                     // do nothing, player not ready yet
@@ -287,10 +263,30 @@ impl Player {
         };
     }
 
-    fn play_buffer(&mut self, out: &psimple::Simple) -> Result<(), PAErr> {
+    fn play(&mut self) {
         self.position += 1;
-        out.write(self.raw_buffer[self.position].as_bytes())
-        // out.drain()
+        match (&mut self.reader, &mut self.decoder, &mut self.output) {
+            (Some(reader), Some(decoder), Some(out)) => {
+                let packet = reader.next_packet().unwrap();
+                let decoded = decoder.decode(&packet).unwrap();
+                let mut raw_sample_buf =
+                    RawSampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+                raw_sample_buf.copy_interleaved_ref(decoded);
+                match out.write(raw_sample_buf.as_bytes()) {
+                    Ok(_) => {
+                        // successfully wrote buffer
+                        // println!("success");
+                    }
+                    Err(err) => {
+                        // PAErr
+                        // println!("Error: {}", err);
+                    }
+                }
+            }
+            _ => {
+                println!("Not everything was initialized")
+            }
+        }
     }
 
     /// Maps a set of Symphonia `Channels` to a PulseAudio channel map.
@@ -334,7 +330,8 @@ impl Player {
         Some(map)
     }
 
-    pub fn get_output(spec: SignalSpec) -> psimple::Simple {
+    pub fn init_output(&mut self) {
+        let spec = self.spec.unwrap();
         let pa_spec = pulse::sample::Spec {
             format: pulse::sample::Format::FLOAT32NE,
             channels: spec.channels.count() as u8,
@@ -354,7 +351,40 @@ impl Player {
             None,                               // Custom buffering attributes
         )
         .unwrap();
-        pa
+        self.output = Some(pa)
+    }
+
+    fn init_reader(&mut self, path: String) {
+        let src = std::fs::File::open(path).expect("failed to open media");
+        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+        let mut hint = Hint::new();
+        hint.with_extension("mp3");
+        let meta_opts: MetadataOptions = Default::default();
+        let fmt_opts: FormatOptions = Default::default();
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &fmt_opts, &meta_opts)
+            .expect("unsupported format");
+        self.reader = Some(probed.format);
+    }
+
+    fn init_decoder(&mut self) {
+        let dec_opts: DecoderOptions = DecoderOptions {
+            verify: false,
+            ..Default::default()
+        };
+        if let Some(reader) = &mut self.reader {
+            let track = reader.default_track().unwrap();
+            let codec_params = &track.codec_params;
+            let mut decoder = symphonia::default::get_codecs()
+                .make(&codec_params, &dec_opts)
+                .unwrap();
+            let packet = reader.next_packet().unwrap();
+            // self.decoder = Some(decoder);
+            let decoded = decoder.decode(&packet).unwrap();
+            let spec = decoded.spec();
+            self.spec = Some(*spec);
+            self.decoder = Some(decoder);
+        };
     }
 }
 
