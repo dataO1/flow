@@ -9,7 +9,8 @@ use crossterm::{
 };
 use std::{
     collections::HashMap,
-    io,
+    fs, io,
+    path::Path,
     sync::{Arc, Mutex},
 };
 use tokio::{
@@ -35,7 +36,7 @@ use super::{
 #[derive(Clone, Debug)]
 pub enum Event {
     TogglePlay,
-    LoadTrack(String),
+    LoadTrack,
     Quit,
     Unknown,
 }
@@ -77,15 +78,7 @@ impl App {
         // spawn player
         let player_handle = Player::spawn(player_messages_in, player_events_out);
         // list tracks TODO: read directory for files
-        let files_paths = [
-            "/home/data01/Music/Mr. Frenkie - Bass Symptom.mp3",
-            "/home/data01/Downloads/the_rush.mp3",
-        ];
-        for file_path in files_paths {
-            let file_path = String::from(file_path);
-            self.tracks
-                .insert(file_path.clone(), Track::new(file_path.clone()));
-        }
+        self.scan_dir(Path::new("/home/data01/Music/"));
         // spawn analyzers
         for track in &mut self.tracks.values() {
             Analyzer::spawn(
@@ -109,9 +102,7 @@ impl App {
             loop {
                 if let crossterm::event::Event::Key(key) = event::read().unwrap() {
                     let ev = match key.code {
-                        KeyCode::Enter => {
-                            Event::LoadTrack(String::from("/home/data01/Downloads/the_rush.mp3"))
-                        }
+                        KeyCode::Enter => Event::LoadTrack,
                         KeyCode::Char(' ') => Event::TogglePlay,
                         KeyCode::Char('q') => Event::Quit,
                         _ => Event::Unknown,
@@ -140,13 +131,16 @@ impl App {
                     player_messages_out.send(Message::TogglePlay).await;
                     self.status_text = String::from("TogglePlay");
                 }
-                Event::LoadTrack(file_path) => {
-                    player_messages_out
-                        .send(Message::Load(file_path.clone()))
-                        .await;
-                    self.currently_loaded_track = Some(file_path);
-                    self.status_text = String::from("Loaded track");
-                    self.player_position = 0;
+                Event::LoadTrack => {
+                    // TODO: actually load track under cursor
+                    if let Some(track) = self.tracks.values().next() {
+                        player_messages_out
+                            .send(Message::Load(track.file_path.clone()))
+                            .await;
+                        self.status_text = String::from("Loaded track");
+                        self.player_position = 0;
+                        self.currently_loaded_track = Some(track.file_path.clone());
+                    }
                 }
                 Event::Quit => std::process::exit(0),
                 Event::Unknown => {
@@ -203,5 +197,22 @@ impl App {
             )
             .alignment(tui::layout::Alignment::Center);
         f.render_widget(status_bar, chunks[3]);
+    }
+
+    fn scan_dir(&mut self, dir: &Path) -> io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    self.scan_dir(&path)?;
+                } else {
+                    let file_path = path.into_os_string().into_string().unwrap();
+                    let track = Track::new(String::from(file_path.clone()));
+                    self.tracks.insert(file_path, track);
+                }
+            }
+        };
+        Ok(())
     }
 }

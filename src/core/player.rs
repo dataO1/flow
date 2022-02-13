@@ -53,6 +53,7 @@ pub enum PlayerState {
     Closed,
 }
 
+#[derive(Debug)]
 pub struct PreviewBuffer {
     /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
     buf: Vec<f32>,
