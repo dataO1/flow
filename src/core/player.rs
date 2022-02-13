@@ -2,14 +2,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::core::player;
-use crate::core::reader;
 use itertools::Itertools;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
 use log::warn;
-use pulse::error::PAErr;
 use symphonia::core::audio::RawSampleBuffer;
+use symphonia::core::audio::SampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
 use symphonia::core::codecs::Decoder;
 use symphonia::core::codecs::DecoderOptions;
@@ -20,9 +19,6 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
-
-use super::reader::PacketBuffer;
-use super::reader::Reader;
 
 pub enum Message {
     /// Load a new file
@@ -67,9 +63,9 @@ pub struct PreviewBuffer {
 
 impl PreviewBuffer {
     /// push packet to internal buffer
-    fn push(&mut self, packet: &PacketBuffer) {
+    pub fn push(&mut self, packet: &SampleBuffer<f32>) {
         // downsample packet
-        let samples = packet.decoded.samples();
+        let samples = packet.samples();
         // since the samples in the packets are interlaeved (2 channels), we have to adjust the
         // chunk size
         let chunk_size = samples.len() / (self.samples_per_packet);
@@ -159,9 +155,13 @@ pub struct Player {
     state: PlayerState,
     /// player position in packages
     position: usize,
+    /// Formatreader
     reader: Option<Box<dyn FormatReader>>,
+    /// Decoder
     decoder: Option<Box<dyn Decoder>>,
+    /// PulseAudio output
     output: Option<psimple::Simple>,
+    /// Signal Spec
     spec: Option<SignalSpec>,
 }
 

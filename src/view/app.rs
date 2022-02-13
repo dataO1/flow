@@ -1,4 +1,7 @@
-use crate::core::player::{self, PreviewBuffer};
+use crate::core::{
+    analyzer::Analyzer,
+    player::{self, PreviewBuffer},
+};
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode},
     execute,
@@ -7,7 +10,6 @@ use crossterm::{
 use std::{
     io,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
@@ -15,7 +17,7 @@ use tokio::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph},
 };
 use tui::{
     layout::{Constraint, Direction, Layout},
@@ -69,22 +71,17 @@ impl App {
             player_events_out,
             Arc::clone(&self.frame_buf),
         );
+        let analyzer_handle = Analyzer::spawn(
+            String::from("/home/data01/Downloads/the_rush.mp3"),
+            Arc::clone(&self.frame_buf),
+        );
         // let tick_rate = Duration::from_millis(5);
         // let mut last_tick = Instant::now();
-        // execute main UI loop
         loop {
             // if last_tick.elapsed() >= tick_rate {
-            // draw to terminal
             terminal.draw(|f| self.layout(f))?;
             //     last_tick = Instant::now();
             // }
-            // // get events async
-            // if let Some(ev) = self.event_channel_rx.recv().await {
-            //     // update state
-            //     self.update(ev).await;
-            // }
-            // get events async
-            // update state
             self.update(
                 &mut key_events_in,
                 player_messages_out.clone(),
@@ -145,7 +142,6 @@ impl App {
                 player::Event::PlayedPackage(num_packets) => {
                     self.player_position += num_packets;
                 }
-                _ => {}
             }
         }
     }
@@ -175,8 +171,8 @@ impl App {
             self.player_position,
         );
 
-        // f.render_widget(preview, chunks[1]);
-        // f.render_widget(live_preview, chunks[0]);
+        f.render_widget(preview, chunks[1]);
+        f.render_widget(live_preview, chunks[0]);
 
         let status_bar = Paragraph::new(self.status_text.clone())
             .block(
