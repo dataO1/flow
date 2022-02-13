@@ -6,18 +6,30 @@ use tui::style::Color;
 use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
-use crate::core::player::FrameBuffer;
+use crate::core::player::PreviewBuffer;
 
-pub struct WaveWidget {
-    preview_buf: Arc<Mutex<FrameBuffer>>,
+pub struct PreviewWidget {
+    preview_buf: Arc<Mutex<PreviewBuffer>>,
     player_pos: usize,
+    preview_type: PreviewType,
 }
 
-impl WaveWidget {
-    pub fn new(preview_buf: Arc<Mutex<FrameBuffer>>, player_pos: usize) -> Self {
+#[derive(Copy, Clone, PartialEq)]
+pub enum PreviewType {
+    LivePreview,
+    Preview,
+}
+
+impl PreviewWidget {
+    pub fn new(
+        preview_type: PreviewType,
+        preview_buf: Arc<Mutex<PreviewBuffer>>,
+        player_pos: usize,
+    ) -> Self {
         Self {
             preview_buf,
             player_pos,
+            preview_type,
         }
     }
 
@@ -33,7 +45,7 @@ impl WaveWidget {
     }
 }
 
-impl Widget for WaveWidget {
+impl Widget for PreviewWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
@@ -41,7 +53,12 @@ impl Widget for WaveWidget {
         let x_min = -x_max;
         let y_max = (area.height as f64 / 2.0).floor() as i16;
         let y_min = -y_max;
+        let resolution = area.width as usize;
         let preview_buf = self.preview_buf.lock().unwrap();
+        let source = match self.preview_type {
+            PreviewType::Preview => preview_buf.get_preview(resolution),
+            PreviewType::LivePreview => preview_buf.get_live_preview(resolution, self.player_pos),
+        };
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let can = Canvas::default()
@@ -51,17 +68,19 @@ impl Widget for WaveWidget {
             .paint(|ctx| {
                 let mut prev = 0.0 as f32;
                 // center line
-                ctx.draw(&Line {
-                    x1: 0.0,
-                    x2: 0.0,
-                    y1: y_min as f64,
-                    y2: y_max as f64,
-                    color: Color::Red,
-                });
+                if self.preview_type == PreviewType::LivePreview {
+                    ctx.draw(&Line {
+                        x1: 0.0,
+                        x2: 0.0,
+                        y1: y_min as f64,
+                        y2: y_max as f64,
+                        color: Color::Red,
+                    });
+                }
                 ctx.layer();
                 // for i in (1..(area.width as usize)) {
-                for (i, sample) in preview_buf
-                    .get_live_preview(area.width as usize, self.player_pos)
+                for (i, sample) in source
+                    .to_owned()
                     .into_iter()
                     .take(area.width as usize)
                     .enumerate()
@@ -72,12 +91,12 @@ impl Widget for WaveWidget {
                     let x = x_min + i as i16;
                     let y = sample * (area.height as f32);
                     let y = 5. * y;
-                    // draw main line
+                    // draw gray background
                     ctx.draw(&Line {
                         x1: x as f64,
                         x2: x as f64,
-                        y1: y as f64,
-                        y2: -y as f64,
+                        y1: y as f64 * 1.3,
+                        y2: -y as f64 * 1.3,
                         color: Color::Gray,
                     });
                     // draw main line

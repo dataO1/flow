@@ -1,7 +1,4 @@
-use crate::{
-    core::player::{self, FrameBuffer},
-    view::widgets::wave::WaveWidget,
-};
+use crate::core::player::{self, PreviewBuffer};
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode},
     execute,
@@ -23,6 +20,8 @@ use tui::{
 
 use crate::core::player::{Message, Player};
 
+use super::widgets::preview::{PreviewType, PreviewWidget};
+
 #[derive(Clone, Debug)]
 pub enum Event {
     TogglePlay,
@@ -40,14 +39,14 @@ impl Default for AppState {
 }
 
 pub struct App {
-    frame_buf: Arc<Mutex<FrameBuffer>>,
+    frame_buf: Arc<Mutex<PreviewBuffer>>,
     player_position: usize,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
-            frame_buf: Arc::new(Mutex::new(FrameBuffer::default())),
+            frame_buf: Arc::new(Mutex::new(PreviewBuffer::default())),
             player_position: 0,
         }
     }
@@ -148,10 +147,27 @@ impl App {
     fn layout<B: Backend>(&mut self, f: &mut Frame<B>) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+            .constraints(
+                [
+                    Constraint::Percentage(5),
+                    Constraint::Percentage(10),
+                    Constraint::Percentage(75),
+                ]
+                .as_ref(),
+            )
             .split(f.size());
-        let wave_widget = WaveWidget::new(Arc::clone(&self.frame_buf), self.player_position);
+        let live_preview = PreviewWidget::new(
+            PreviewType::LivePreview,
+            Arc::clone(&self.frame_buf),
+            self.player_position,
+        );
+        let preview = PreviewWidget::new(
+            PreviewType::Preview,
+            Arc::clone(&self.frame_buf),
+            self.player_position,
+        );
 
-        f.render_widget(wave_widget, chunks[0]);
+        f.render_widget(preview, chunks[0]);
+        f.render_widget(live_preview, chunks[1]);
     }
 }

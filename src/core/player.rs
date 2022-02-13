@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use crate::core::player;
 use crate::core::reader;
+use itertools::Itertools;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
@@ -49,16 +50,12 @@ pub enum PlayerState {
     Closed,
 }
 
-pub struct FrameBuffer {
-    /// Original Source Packets
-    pub packets: Vec<PacketBuffer>,
+pub struct PreviewBuffer {
     /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
-    preview_buffer: Vec<f32>,
-    // current playing packet of the player
-    // player_pos: usize,
+    buf: Vec<f32>,
 }
 
-impl FrameBuffer {
+impl PreviewBuffer {
     /// push packet to internal buffer
     fn push(&mut self, packet: &PacketBuffer) {
         // downsample packet
@@ -66,14 +63,12 @@ impl FrameBuffer {
         let num_samples = samples.len();
         let sum: f32 = samples.iter().sum();
         let preview_sample = sum / num_samples as f32;
-        // self.buf.append(&mut preview_chunk);
-        // self.packets.push(packet);
-        self.preview_buffer.push(preview_sample);
+        self.buf.push(preview_sample);
     }
 
     /// length of the internal buffer
     pub fn len(&self) -> usize {
-        self.preview_buffer.len()
+        self.buf.len()
     }
 
     /// Returns a downsampled preview version
@@ -84,30 +79,45 @@ impl FrameBuffer {
             // if yes return buffer content
             let l = player_pos as f32 - (target_resolution as f32 / 2.0);
             let r = player_pos as f32 + (target_resolution as f32 / 2.0);
-            self.preview_buffer[l as usize..r as usize].to_owned()
+            self.buf[l as usize..r as usize].to_owned()
         } else {
             let diff = diff.abs() as usize;
             let mut padding = vec![0.0 as f32; diff];
-            padding.append(&mut self.preview_buffer.to_vec());
+            padding.append(&mut self.buf.to_vec());
             padding.to_owned()
         }
     }
 
-    // /// advance the buffer by one packet
-    // pub fn advance_position(&mut self) {
-    //     self.player_pos += 1;
-    // }
-
-    // pub fn get_curr_raw(&self) -> &RawSampleBuffer<f32> {
-    //     &self.packets[self.player_pos].raw
-    // }
+    pub fn get_preview(&self, target_resolution: usize) -> Vec<f32> {
+        if target_resolution > self.len() {
+            vec![0.0; target_resolution]
+        } else {
+            let chunk_size = (self.len() as f32 / target_resolution as f32).floor() as usize;
+            let preview: Vec<f32> = self
+                .buf
+                .to_owned()
+                .into_iter()
+                .chunks(chunk_size)
+                .into_iter()
+                .map(|chunk| {
+                    let mut sum: f32 = 0.0;
+                    let mut num = 0;
+                    for packet in chunk {
+                        num += 1;
+                        sum += packet;
+                    }
+                    sum / num as f32
+                })
+                .collect();
+            preview
+        }
+    }
 }
 
-impl Default for FrameBuffer {
+impl Default for PreviewBuffer {
     fn default() -> Self {
         Self {
-            packets: vec![],
-            preview_buffer: vec![],
+            buf: vec![],
             // player_pos: 0,
         }
     }
@@ -115,7 +125,7 @@ impl Default for FrameBuffer {
 
 pub struct Player {
     /// frame buffer
-    frame_buffer: Arc<Mutex<FrameBuffer>>,
+    frame_buffer: Arc<Mutex<PreviewBuffer>>,
     raw_buffer: Vec<RawSampleBuffer<f32>>,
     /// player state
     state: PlayerState,
@@ -133,7 +143,7 @@ impl Player {
     pub fn spawn(
         player_message_in: Receiver<player::Message>,
         player_event_out: Sender<player::Event>,
-        frame_buffer: Arc<Mutex<FrameBuffer>>,
+        frame_buffer: Arc<Mutex<PreviewBuffer>>,
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
         let (reader_message_out, reader_message_rx) = channel::<reader::Message>(1000);
@@ -153,7 +163,7 @@ impl Player {
         })
     }
 
-    fn new(reader_handle: JoinHandle<()>, preview_buffer: Arc<Mutex<FrameBuffer>>) -> Self {
+    fn new(reader_handle: JoinHandle<()>, preview_buffer: Arc<Mutex<PreviewBuffer>>) -> Self {
         // the frame buffer. TODO: use sensible vector sizes
         Self {
             state: PlayerState::Unloaded,
