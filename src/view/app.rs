@@ -7,12 +7,16 @@ use crossterm::{
 use std::{
     io,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task::JoinHandle,
 };
-use tui::backend::{Backend, CrosstermBackend};
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    widgets::{Block, Borders, Paragraph, Wrap},
+};
 use tui::{
     layout::{Constraint, Direction, Layout},
     Frame, Terminal,
@@ -29,18 +33,11 @@ pub enum Event {
     Quit,
     Unknown,
 }
-/// Represents the App's State
-pub struct AppState {}
-
-impl Default for AppState {
-    fn default() -> AppState {
-        AppState {}
-    }
-}
 
 pub struct App {
     frame_buf: Arc<Mutex<PreviewBuffer>>,
     player_position: usize,
+    status_text: String,
 }
 
 impl Default for App {
@@ -48,6 +45,7 @@ impl Default for App {
         Self {
             frame_buf: Arc::new(Mutex::new(PreviewBuffer::default())),
             player_position: 0,
+            status_text: String::from(""),
         }
     }
 }
@@ -62,8 +60,8 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         // create all message passing channels
         let (key_events_out, mut key_events_in) = channel::<Event>(10);
-        let (player_events_out, mut player_events_in) = channel::<player::Event>(100);
-        let (player_messages_out, player_messages_in) = channel::<player::Message>(100);
+        let (player_events_out, mut player_events_in) = channel::<player::Event>(10);
+        let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         // spawn the input thread
         let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
         let player_handle = Player::spawn(
@@ -71,10 +69,15 @@ impl App {
             player_events_out,
             Arc::clone(&self.frame_buf),
         );
+        // let tick_rate = Duration::from_millis(5);
+        // let mut last_tick = Instant::now();
         // execute main UI loop
         loop {
+            // if last_tick.elapsed() >= tick_rate {
             // draw to terminal
             terminal.draw(|f| self.layout(f))?;
+            //     last_tick = Instant::now();
+            // }
             // // get events async
             // if let Some(ev) = self.event_channel_rx.recv().await {
             //     // update state
@@ -96,7 +99,9 @@ impl App {
             loop {
                 if let crossterm::event::Event::Key(key) = event::read().unwrap() {
                     let ev = match key.code {
-                        KeyCode::Enter => Event::LoadTrack(String::from("music/bass_symptom.mp3")),
+                        KeyCode::Enter => {
+                            Event::LoadTrack(String::from("/home/data01/Downloads/the_rush.mp3"))
+                        }
                         KeyCode::Char(' ') => Event::TogglePlay,
                         KeyCode::Char('q') => Event::Quit,
                         _ => Event::Unknown,
@@ -123,9 +128,11 @@ impl App {
             match ev {
                 Event::TogglePlay => {
                     player_messages_out.send(Message::TogglePlay).await;
+                    self.status_text = String::from("TogglePlay");
                 }
                 Event::LoadTrack(track) => {
                     player_messages_out.send(Message::Load(track)).await;
+                    self.status_text = String::from("Loaded track")
                 }
                 Event::Quit => std::process::exit(0),
                 Event::Unknown => {
@@ -151,7 +158,8 @@ impl App {
                 [
                     Constraint::Percentage(5),
                     Constraint::Percentage(30),
-                    Constraint::Percentage(65),
+                    Constraint::Percentage(63),
+                    Constraint::Percentage(2),
                 ]
                 .as_ref(),
             )
@@ -167,7 +175,17 @@ impl App {
             self.player_position,
         );
 
-        f.render_widget(preview, chunks[0]);
+        // f.render_widget(preview, chunks[0]);
         f.render_widget(live_preview, chunks[1]);
+
+        let status_bar = Paragraph::new(self.status_text.clone())
+            .block(
+                Block::default()
+                    // .title("Status")
+                    .title_alignment(tui::layout::Alignment::Center)
+                    .borders(Borders::TOP),
+            )
+            .alignment(tui::layout::Alignment::Center);
+        f.render_widget(status_bar, chunks[3]);
     }
 }

@@ -53,7 +53,9 @@ pub enum PlayerState {
 pub struct PreviewBuffer {
     /// A downsampled version of the raw packets. 1 Packet = 1 preview sample
     buf: Vec<f32>,
-    resample_factor: usize,
+    /// determines the number of samples for preview per packet. Since samples are interleaved,
+    /// this should be a multiple of the number of channels (usually two for stereo)
+    samples_per_packet: usize,
 }
 
 impl PreviewBuffer {
@@ -61,7 +63,9 @@ impl PreviewBuffer {
     fn push(&mut self, packet: &PacketBuffer) {
         // downsample packet
         let samples = packet.decoded.samples();
-        let chunk_size = samples.len() / self.resample_factor;
+        // since the samples in the packets are interlaeved (2 channels), we have to adjust the
+        // chunk size
+        let chunk_size = samples.len() / (self.samples_per_packet);
         let mut preview_samples: Vec<f32> = samples
             .into_iter()
             .chunks(chunk_size)
@@ -91,7 +95,7 @@ impl PreviewBuffer {
         player_pos: usize,
         playhead_position: usize,
     ) -> Vec<f32> {
-        let player_pos = player_pos * self.resample_factor;
+        let player_pos = player_pos * self.samples_per_packet;
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size as isize / 2);
         if diff >= 0 {
@@ -137,7 +141,7 @@ impl Default for PreviewBuffer {
     fn default() -> Self {
         Self {
             buf: vec![],
-            resample_factor: 2,
+            samples_per_packet: 2 << 2,
             // player_pos: 0,
         }
     }

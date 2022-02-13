@@ -37,7 +37,7 @@ impl PreviewWidget {
     fn get_col(&self, prev: &Sample, curr: &Sample) -> Color {
         let diff = curr - prev;
         // try to detect transient
-        if diff > 0.6 {
+        if diff > 0.1 {
             Color::Red
         } else {
             Color::Green
@@ -51,18 +51,20 @@ impl Widget for PreviewWidget {
         // to fit the resolution of the given area
         let x_max = area.width as usize;
         let y_max = area.height as usize;
-        let playhead_position = 0;
+        let playhead_offset_from_center = 0;
         let preview_buf = self.preview_buf.lock().unwrap();
         let source = match self.preview_type {
             PreviewType::Preview => preview_buf.get_preview(x_max * 2),
-            PreviewType::LivePreview => {
-                preview_buf.get_live_preview(x_max * 2, self.player_pos, playhead_position)
-            }
+            PreviewType::LivePreview => preview_buf.get_live_preview(
+                x_max * 2,
+                self.player_pos,
+                playhead_offset_from_center,
+            ),
         };
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
-        let can = Canvas::default()
-            .block(Block::default().title("Live Preview").borders(Borders::ALL))
+        let canvas = Canvas::default()
+            .block(Block::default().borders(Borders::ALL))
             .x_bounds([-(x_max as f64), x_max as f64])
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
@@ -70,8 +72,8 @@ impl Widget for PreviewWidget {
                 // center line
                 if self.preview_type == PreviewType::LivePreview {
                     ctx.draw(&Line {
-                        x1: 0.0,
-                        x2: 0.0,
+                        x1: -(playhead_offset_from_center as f64),
+                        x2: -(playhead_offset_from_center as f64),
                         y1: -(y_max as f64),
                         y2: y_max as f64,
                         color: Color::Red,
@@ -88,29 +90,29 @@ impl Widget for PreviewWidget {
                     // determine x
                     // let x = ((i * chunk_size) as f32) - (preview_buf_len as f32 / 2.0);
                     // fit sample (a value between 0 and 1) into area height
-                    let x = -(x_max as i16) + i as i16;
-                    let y = sample * (y_max as f32);
-                    // let y = 50. * y;
+                    let x = (-(x_max as i16) + i as i16) as f64;
+                    let y = (sample * (y_max as f32)) as f64;
+                    // let y = 5. * y;
                     // draw gray background
-                    ctx.draw(&Line {
-                        x1: x as f64,
-                        x2: x as f64,
-                        y1: y as f64 * 1.3,
-                        y2: -y as f64 * 1.3,
-                        color: Color::Gray,
-                    });
+                    // ctx.draw(&Line {
+                    //     x1: x,
+                    //     x2: x,
+                    //     y1: y * 2.0,
+                    //     y2: -y * 2.0,
+                    //     color: Color::Gray,
+                    // });
                     // draw main line
                     ctx.draw(&Line {
-                        x1: x as f64,
-                        x2: x as f64,
-                        y1: y as f64 * 0.5,
-                        y2: -y as f64 * 0.5,
-                        color: self.get_col(&sample, &prev),
+                        x1: x,
+                        x2: x,
+                        y1: y,
+                        y2: -y,
+                        color: Color::White,
                     });
                     prev = sample;
                 }
             });
-        can.render(area, buf);
+        canvas.render(area, buf);
     }
 }
 

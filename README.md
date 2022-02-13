@@ -2,7 +2,7 @@
   - UI ([tui-realm]( https://github.com/veeso/tui-realm ) or [tui-rs](https://github.com/fdehau/tui-rs)) 
     * [x] Test UI, that handles key events and triggers player
     * [ ] Mockup/Design Paper
-    * [ ] Wavefodrm - Overview
+    * [-] Waveform - Overview
     * [-] Waveform - Live
     * [ ] Playlists Editor
   - Player ([Symphonia](https://crates.io/crates/symphonia))
