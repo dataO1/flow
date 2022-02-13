@@ -62,8 +62,8 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         // create all message passing channels
         let (key_events_out, mut key_events_in) = channel::<Event>(10);
-        let (player_events_out, mut player_events_in) = channel::<player::Event>(1);
-        let (player_messages_out, player_messages_in) = channel::<player::Message>(1);
+        let (player_events_out, mut player_events_in) = channel::<player::Event>(100);
+        let (player_messages_out, player_messages_in) = channel::<player::Message>(100);
         // spawn the input thread
         let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
         let player_handle = Player::spawn(

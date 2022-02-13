@@ -85,7 +85,12 @@ impl PreviewBuffer {
     }
 
     /// Returns a downsampled preview version
-    pub fn get_live_preview(&self, target_size: usize, player_pos: usize) -> Vec<f32> {
+    pub fn get_live_preview(
+        &self,
+        target_size: usize,
+        player_pos: usize,
+        playhead_position: usize,
+    ) -> Vec<f32> {
         let player_pos = player_pos * self.resample_factor;
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size as isize / 2);

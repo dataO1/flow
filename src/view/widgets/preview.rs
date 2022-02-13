@@ -49,22 +49,22 @@ impl Widget for PreviewWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
-        let x_max = (area.width as f64 / 2.0).floor() as i16;
-        let x_min = -x_max;
-        let y_max = (area.height as f64 / 2.0).floor() as i16;
-        let y_min = -y_max;
-        let resolution = area.width as usize;
+        let x_max = area.width as usize;
+        let y_max = area.height as usize;
+        let playhead_position = 0;
         let preview_buf = self.preview_buf.lock().unwrap();
         let source = match self.preview_type {
-            PreviewType::Preview => preview_buf.get_preview(resolution),
-            PreviewType::LivePreview => preview_buf.get_live_preview(resolution, self.player_pos),
+            PreviewType::Preview => preview_buf.get_preview(x_max * 2),
+            PreviewType::LivePreview => {
+                preview_buf.get_live_preview(x_max * 2, self.player_pos, playhead_position)
+            }
         };
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let can = Canvas::default()
             .block(Block::default().title("Live Preview").borders(Borders::ALL))
-            .x_bounds([x_min as f64, x_max as f64])
-            .y_bounds([y_min as f64, y_max as f64])
+            .x_bounds([-(x_max as f64), x_max as f64])
+            .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
                 let mut prev = 0.0 as f32;
                 // center line
@@ -72,7 +72,7 @@ impl Widget for PreviewWidget {
                     ctx.draw(&Line {
                         x1: 0.0,
                         x2: 0.0,
-                        y1: y_min as f64,
+                        y1: -(y_max as f64),
                         y2: y_max as f64,
                         color: Color::Red,
                     });
@@ -82,15 +82,15 @@ impl Widget for PreviewWidget {
                 for (i, sample) in source
                     .to_owned()
                     .into_iter()
-                    .take(area.width as usize)
+                    // .take(area.width as usize)
                     .enumerate()
                 {
                     // determine x
                     // let x = ((i * chunk_size) as f32) - (preview_buf_len as f32 / 2.0);
                     // fit sample (a value between 0 and 1) into area height
-                    let x = x_min + i as i16;
-                    let y = sample * (area.height as f32);
-                    let y = 10. * y;
+                    let x = -(x_max as i16) + i as i16;
+                    let y = sample * (y_max as f32);
+                    // let y = 50. * y;
                     // draw gray background
                     ctx.draw(&Line {
                         x1: x as f64,
