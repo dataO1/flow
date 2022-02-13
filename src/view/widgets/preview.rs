@@ -92,22 +92,26 @@ impl Widget for PreviewWidget {
                     // fit sample (a value between 0 and 1) into area height
                     let x = (-(x_max as i16) + i as i16) as f64;
                     let y = (sample * (y_max as f32)) as f64;
-                    // let y = 5. * y;
-                    // draw gray background
-                    // ctx.draw(&Line {
-                    //     x1: x,
-                    //     x2: x,
-                    //     y1: y * 2.0,
-                    //     y2: -y * 2.0,
-                    //     color: Color::Gray,
-                    // });
-                    // draw main line
+                    if self.preview_type == PreviewType::LivePreview {
+                        let y = 5. * y;
+                    } else {
+                        let y = 20.0 * y;
+                    }
+                    // draw line
                     ctx.draw(&Line {
                         x1: x,
                         x2: x,
                         y1: y,
                         y2: -y,
-                        color: Color::White,
+                        color: Color::Gray,
+                    });
+                    // draw inner line
+                    ctx.draw(&Line {
+                        x1: x,
+                        x2: x,
+                        y1: y * 0.4,
+                        y2: -y * 0.4,
+                        color: Color::DarkGray,
                     });
                     prev = sample;
                 }

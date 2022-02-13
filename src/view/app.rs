@@ -156,8 +156,8 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    Constraint::Percentage(5),
-                    Constraint::Percentage(30),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(10),
                     Constraint::Percentage(63),
                     Constraint::Percentage(2),
                 ]
@@ -175,8 +175,8 @@ impl App {
             self.player_position,
         );
 
-        // f.render_widget(preview, chunks[0]);
-        f.render_widget(live_preview, chunks[1]);
+        f.render_widget(preview, chunks[1]);
+        f.render_widget(live_preview, chunks[0]);
 
         let status_bar = Paragraph::new(self.status_text.clone())
             .block(
