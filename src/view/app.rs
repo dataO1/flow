@@ -7,6 +7,7 @@ use crossterm::{
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
+use indexmap::IndexMap;
 use std::{collections::HashMap, fs, io, path::Path, sync::Arc, time::Duration};
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
@@ -26,7 +27,10 @@ use crate::core::player::{Message, Player};
 
 use super::{
     model::track::Track,
-    widgets::preview::{PreviewType, PreviewWidget},
+    widgets::{
+        file_list::FileListWidget,
+        preview::{PreviewType, PreviewWidget},
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -59,11 +63,13 @@ pub struct App {
     //                              Player                              //
     //------------------------------------------------------------------//
     /// hashmap of tracks, that were found in the music dir
-    tracks: HashMap<String, Track>,
+    tracks: IndexMap<String, Track>,
     /// the track that is currently loaded by the player
     currently_loaded_track: Option<String>,
     /// current player position in number of packets.
     player_position: usize,
+    /// current file path under cursor
+    focused_track: Option<String>,
 }
 
 impl Default for App {
@@ -71,9 +77,10 @@ impl Default for App {
         Self {
             player_position: 0,
             latest_event: String::from(""),
-            tracks: HashMap::new(),
+            tracks: IndexMap::new(),
             currently_loaded_track: None,
             active_event_scope: EventScope::FileList,
+            focused_track: None,
         }
     }
 }
@@ -95,6 +102,12 @@ impl App {
         let player_handle = Player::spawn(player_messages_in, player_events_out);
         // list tracks TODO: read directory for files
         self.scan_dir(Path::new("/home/data01/Music/"));
+        self.focused_track = self
+            .tracks
+            .keys()
+            .into_iter()
+            .next()
+            .map(|file_path_ref| file_path_ref.to_owned());
         // spawn analyzers
         for track in &mut self.tracks.values() {
             Analyzer::spawn(
@@ -121,12 +134,18 @@ impl App {
         player_events_in: &mut Receiver<player::Event>,
         analyzer_event_in: &mut Receiver<analyzer::Event>,
     ) -> () {
-        // get key events
+        //------------------------------------------------------------------//
+        //                            Key Events                            //
+        //------------------------------------------------------------------//
         if let Ok(true) = event::poll(Duration::from_millis(1)) {
             if let event::Event::Key(key) = event::read().unwrap() {
                 if let KeyModifiers::NONE = key.modifiers {
                     // Events with no modifiers (local)
                     match key.code {
+                        // go up a track
+                        KeyCode::Char('j') => self.update_focused_track(usize::wrapping_add),
+                        // go down a track
+                        KeyCode::Char('k') => self.update_focused_track(usize::wrapping_sub),
                         /// Toggle Play
                         KeyCode::Char(' ') => {
                             player_messages_out.send(Message::TogglePlay).await;
@@ -138,14 +157,11 @@ impl App {
                                 ()
                             };
                             // TODO: load track under cursor
-                            if let Some(track) = self.tracks.values().next() {
-                                player_messages_out
-                                    .send(Message::Load(track.file_path.clone()))
-                                    .await;
-                                self.latest_event =
-                                    String::from(format!("Loaded {}", track.file_path));
+                            if let Some(track) = &mut self.focused_track {
+                                player_messages_out.send(Message::Load(track.clone())).await;
+                                self.latest_event = String::from(format!("Loaded {}", track));
                                 self.player_position = 0;
-                                self.currently_loaded_track = Some(track.file_path.clone());
+                                self.currently_loaded_track = Some(track.clone());
                             }
                         }
                         _ => self.latest_event = String::from("Unknown Command"),
@@ -163,7 +179,9 @@ impl App {
                 };
             }
         }
-        // get player events
+        //------------------------------------------------------------------//
+        //                          Player Events                           //
+        //------------------------------------------------------------------//
         if let Ok(ev) = player_events_in.try_recv() {
             match ev {
                 player::Event::PlayedPackages(num_packets) => {
@@ -171,7 +189,9 @@ impl App {
                 }
             }
         }
-        // get analyzer events
+        //------------------------------------------------------------------//
+        //                         Analyzer Events                          //
+        //------------------------------------------------------------------//
         if let Ok(ev) = analyzer_event_in.try_recv() {
             match ev {
                 analyzer::Event::DoneAnalyzing(track) => {
@@ -225,22 +245,13 @@ impl App {
             )
             .alignment(tui::layout::Alignment::Center);
         f.render_widget(status_bar, chunks[3]);
-        let tracks: Vec<ListItem> = self
-            .tracks
-            .keys()
-            .cloned()
-            .map(|file_path| {
-                // parse file path to file name
-                let file_name = Path::new(&file_path).file_name().unwrap().to_str().unwrap();
-                ListItem::new(Spans::from(String::from(file_name)))
-            })
-            .collect();
-        let track_list = List::new(tracks).block(
-            Block::default()
-                .title("Files")
-                .borders(Borders::TOP | Borders::RIGHT),
+        let file_list_input = self.tracks.keys().cloned().collect();
+        let file_list = FileListWidget::new(
+            &file_list_input,
+            self.active_event_scope == EventScope::FileList,
+            &self.focused_track,
         );
-        f.render_widget(track_list, hsplit[0]);
+        f.render_widget(file_list, hsplit[0]);
     }
 
     /// scans a directory for tracks
@@ -267,5 +278,17 @@ impl App {
             }
         };
         Ok(())
+    }
+
+    fn update_focused_track(&mut self, modifier: fn(usize, usize) -> (usize)) {
+        if let Some(path) = &self.focused_track {
+            let index = self.tracks.get_index_of(path);
+            let new_index = index.map(|i| if i >= 0 { modifier(i, 1) } else { i });
+            if let Some(i) = new_index {
+                if let Some((k, _)) = self.tracks.get_index(i) {
+                    self.focused_track = Some(k.clone());
+                }
+            }
+        }
     }
 }
