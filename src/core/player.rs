@@ -39,7 +39,7 @@ pub enum Message {
 pub enum Event {
     // Preview(Box<usizeBuffer>),
     /// Played x messages
-    PlayedPackage(usize),
+    PlayedPackages(usize),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -226,7 +226,9 @@ impl Player {
             if let PlayerState::Playing = self.state {
                 if let Some(out) = &mut self.output {
                     self.play();
-                    player_event_out.send(player::Event::PlayedPackage(1)).await;
+                    player_event_out
+                        .send(player::Event::PlayedPackages(1))
+                        .await;
                 }
             }
         }

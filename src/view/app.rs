@@ -3,11 +3,11 @@ use crate::core::{
     player::{self},
 };
 use crossterm::{
-    event::{self, EnableMouseCapture, KeyCode},
+    event::{self, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
-use std::{collections::HashMap, fs, io, path::Path, sync::Arc};
+use std::{collections::HashMap, fs, io, path::Path, sync::Arc, time::Duration};
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task::JoinHandle,
@@ -41,6 +41,7 @@ pub enum Event {
     Unknown,
 }
 /// Abstraction layer for determining, which (key) events should get handled in which scope
+#[derive(PartialEq)]
 enum EventScope {
     Player,
     FileList,
@@ -87,12 +88,9 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         // create message passing channels
-        let (key_events_out, mut key_events_in) = channel::<Event>(10);
         let (player_events_out, mut player_events_in) = channel::<player::Event>(10);
         let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         let (analyzer_event_out, mut analyzer_event_in) = channel::<analyzer::Event>(10);
-        // spawn the input thread
-        let _kb_join_handle = App::spawn_key_handler(key_events_out.clone());
         // spawn player
         let player_handle = Player::spawn(player_messages_in, player_events_out);
         // list tracks TODO: read directory for files
@@ -108,7 +106,6 @@ impl App {
         loop {
             terminal.draw(|f| self.render(f))?;
             self.update(
-                &mut key_events_in,
                 player_messages_out.clone(),
                 &mut player_events_in,
                 &mut analyzer_event_in,
@@ -117,66 +114,64 @@ impl App {
         }
     }
 
-    /// spawn key handler thread
-    fn spawn_key_handler(app: Sender<Event>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            loop {
-                if let crossterm::event::Event::Key(key) = event::read().unwrap() {
-                    let ev = match key.code {
-                        KeyCode::Enter => Event::LoadTrack,
-                        KeyCode::Char(' ') => Event::TogglePlay,
-                        KeyCode::Char('q') => Event::Quit,
-                        _ => Event::Unknown,
-                    };
-                    match app.send(ev).await {
-                        Ok(_res) => (),
-                        Err(err) => {
-                            println!("Error:{:#?}", err)
-                        }
-                    }
-                };
-            }
-        })
-    }
-
     ///update the app's model
     async fn update(
         &mut self,
-        key_events_in: &mut Receiver<Event>,
         player_messages_out: Sender<player::Message>,
         player_events_in: &mut Receiver<player::Event>,
         analyzer_event_in: &mut Receiver<analyzer::Event>,
     ) -> () {
-        if let Ok(ev) = key_events_in.try_recv() {
-            match ev {
-                Event::TogglePlay => {
-                    player_messages_out.send(Message::TogglePlay).await;
-                    self.latest_event = String::from("TogglePlay");
-                }
-                Event::LoadTrack => {
-                    // TODO: actually load track under cursor
-                    if let Some(track) = self.tracks.values().next() {
-                        player_messages_out
-                            .send(Message::Load(track.file_path.clone()))
-                            .await;
-                        self.latest_event = String::from(format!("Loaded {}", track.file_path));
-                        self.player_position = 0;
-                        self.currently_loaded_track = Some(track.file_path.clone());
+        // get key events
+        if let Ok(true) = event::poll(Duration::from_millis(1)) {
+            if let event::Event::Key(key) = event::read().unwrap() {
+                if let KeyModifiers::NONE = key.modifiers {
+                    // Events with no modifiers (local)
+                    match key.code {
+                        /// Toggle Play
+                        KeyCode::Char(' ') => {
+                            player_messages_out.send(Message::TogglePlay).await;
+                            self.latest_event = String::from("TogglePlay");
+                        }
+                        // Load Track
+                        KeyCode::Enter => {
+                            if self.active_event_scope != EventScope::FileList {
+                                ()
+                            };
+                            // TODO: load track under cursor
+                            if let Some(track) = self.tracks.values().next() {
+                                player_messages_out
+                                    .send(Message::Load(track.file_path.clone()))
+                                    .await;
+                                self.latest_event =
+                                    String::from(format!("Loaded {}", track.file_path));
+                                self.player_position = 0;
+                                self.currently_loaded_track = Some(track.file_path.clone());
+                            }
+                        }
+                        _ => self.latest_event = String::from("Unknown Command"),
                     }
-                }
-                Event::Quit => std::process::exit(0),
-                Event::Unknown => {
-                    //ignore unknown commands
-                }
+                } else {
+                    // Events with modifier (global)
+                    match key {
+                        KeyEvent {
+                            code: KeyCode::Char('q'),
+                            modifiers: KeyModifiers::ALT,
+                        } => std::process::exit(0),
+                        // unknown key command
+                        _ => self.latest_event = String::from("Unknown Command"),
+                    }
+                };
             }
-        };
+        }
+        // get player events
         if let Ok(ev) = player_events_in.try_recv() {
             match ev {
-                player::Event::PlayedPackage(num_packets) => {
+                player::Event::PlayedPackages(num_packets) => {
                     self.player_position += num_packets;
                 }
             }
         }
+        // get analyzer events
         if let Ok(ev) = analyzer_event_in.try_recv() {
             match ev {
                 analyzer::Event::DoneAnalyzing(track) => {
