@@ -1,3 +1,4 @@
+use crate::core::analyzer;
 use std::sync::{Arc, Mutex};
 
 use log::warn;
@@ -11,13 +12,18 @@ use symphonia::core::{
     meta::MetadataOptions,
     probe::Hint,
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::mpsc::Sender, task::JoinHandle};
 
 use super::player::PreviewBuffer;
 
 //------------------------------------------------------------------//
 //                             Analyzer                             //
 //------------------------------------------------------------------//
+
+pub enum Event {
+    /// This event fires, when a analyzer is done analyzing
+    DoneAnalyzing(String),
+}
 
 pub struct Analyzer {
     /// FormatReader
@@ -31,11 +37,15 @@ pub struct Analyzer {
 }
 
 impl Analyzer {
-    pub fn spawn(file_path: String, preview_buffer: Arc<Mutex<PreviewBuffer>>) -> JoinHandle<()> {
+    pub fn spawn(
+        file_path: String,
+        preview_buffer: Arc<Mutex<PreviewBuffer>>,
+        analyzer_event_out: Sender<analyzer::Event>,
+    ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut analyzer = Analyzer::new(preview_buffer);
             // messages
-            analyzer.init_reader(file_path);
+            analyzer.init_reader(file_path.clone());
             analyzer.init_decoder();
             loop {
                 match analyzer.decode() {
@@ -43,6 +53,9 @@ impl Analyzer {
                     Err(_) => {
                         // Error decoding
                         // Probably done here
+                        analyzer_event_out
+                            .send(analyzer::Event::DoneAnalyzing(file_path))
+                            .await;
                         break;
                     }
                 }

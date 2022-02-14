@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::sync::Mutex;
-
 use crate::core::player;
 use itertools::Itertools;
 use libpulse_binding as pulse;
@@ -17,7 +14,7 @@ use symphonia::core::formats::FormatReader;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
 pub enum Message {

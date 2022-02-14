@@ -64,7 +64,7 @@ impl Widget for PreviewWidget {
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let canvas = Canvas::default()
-            .block(Block::default().borders(Borders::ALL))
+            .block(Block::default().borders(Borders::BOTTOM))
             .x_bounds([-(x_max as f64), x_max as f64])
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
@@ -84,7 +84,7 @@ impl Widget for PreviewWidget {
                 for (i, sample) in source
                     .to_owned()
                     .into_iter()
-                    // .take(area.width as usize)
+                    .take(x_max * 2 as usize)
                     .enumerate()
                 {
                     // determine x
