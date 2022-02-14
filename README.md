@@ -1,18 +1,20 @@
 # Current State and TODO
   - UI ([tui-realm]( https://github.com/veeso/tui-realm ) or [tui-rs](https://github.com/fdehau/tui-rs)) 
     * [x] Test UI, that handles key events and triggers player
-    * [ ] Mockup/Design Paper
+    * [x] Mockup/Design Paper
     * [-] Waveform - Overview
-    * [-] Waveform - Live
+    * [x] Waveform - Live
+    * [x] File list viewer
     * [ ] Playlists Editor
   - Player ([Symphonia](https://crates.io/crates/symphonia))
     * [x] Async Event handling
     * [x] Play/Pause
-    * [-] Seeking
+    * [ ] Seeking
     * [-] Cue
   - Track Analysis
     * [ ] BPM Detection (Aubio)
     * [ ] Beatgrid Detection (Aubio)
+    * [x] Waveform
     * [ ] Creating cue points
     * [ ] Storing results in a mobile database
       *  which DB to use?
