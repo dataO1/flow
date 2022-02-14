@@ -28,7 +28,7 @@ impl<'a> Widget for FileListWidget<'a> {
             .map(|file_path| {
                 let file_name = Path::new(&file_path).file_name().unwrap().to_str().unwrap();
                 let spans = Spans::from(String::from(file_name));
-                let mut item = ListItem::new(spans);
+                let item = ListItem::new(spans);
                 let style = if let Some(file) = self.focused_track {
                     if file == file_path {
                         Style::default().fg(Color::Green)

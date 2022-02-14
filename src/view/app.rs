@@ -15,8 +15,9 @@ use tokio::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
+    layout::Rect,
     text::Spans,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 use tui::{
     layout::{Constraint, Direction, Layout},
@@ -29,6 +30,7 @@ use super::{
     model::track::Track,
     widgets::{
         file_list::FileListWidget,
+        popup::PopupWidget,
         preview::{PreviewType, PreviewWidget},
     },
 };
@@ -156,7 +158,6 @@ impl App {
                             if self.active_event_scope != EventScope::FileList {
                                 ()
                             };
-                            // TODO: load track under cursor
                             if let Some(track) = &mut self.focused_track {
                                 player_messages_out.send(Message::Load(track.clone())).await;
                                 self.latest_event = String::from(format!("Loaded {}", track));
@@ -203,22 +204,27 @@ impl App {
 
     /// define how the app should look like
     fn render<B: Backend>(&mut self, f: &mut Frame<B>) {
-        let chunks = Layout::default()
+        // TODO: refactor
+        let window = Layout::default()
             .direction(Direction::Vertical)
             .constraints(
                 [
+                    // split for the live preview
                     Constraint::Percentage(20),
+                    // split for the waveform overview
                     Constraint::Percentage(10),
+                    // split for the main body
                     Constraint::Percentage(68),
+                    // split for the footer
                     Constraint::Percentage(2),
                 ]
                 .as_ref(),
             )
             .split(f.size());
-        let hsplit = Layout::default()
+        let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
-            .split(chunks[2]);
+            .split(window[2]);
         if let Some(path) = &self.currently_loaded_track {
             let curr_track = self.tracks.get(path).unwrap();
             let live_preview = PreviewWidget::new(
@@ -233,7 +239,7 @@ impl App {
             );
 
             // f.render_widget(preview, chunks[1]);
-            f.render_widget(live_preview, chunks[0]);
+            f.render_widget(live_preview, window[0]);
         }
 
         let status_bar = Paragraph::new(self.latest_event.clone())
@@ -244,14 +250,17 @@ impl App {
                     .borders(Borders::TOP),
             )
             .alignment(tui::layout::Alignment::Center);
-        f.render_widget(status_bar, chunks[3]);
+        f.render_widget(status_bar, window[3]);
         let file_list_input = self.tracks.keys().cloned().collect();
         let file_list = FileListWidget::new(
             &file_list_input,
             self.active_event_scope == EventScope::FileList,
             &self.focused_track,
         );
-        f.render_widget(file_list, hsplit[0]);
+        f.render_widget(file_list, body[0]);
+        // let block = Block::default().title("popup").borders(Borders::ALL);
+        // let popup = PopupWidget::new(block, 10, 90);
+        // f.render_widget(popup, f.size());
     }
 
     /// scans a directory for tracks
@@ -280,6 +289,7 @@ impl App {
         Ok(())
     }
 
+    /// applies a modifier function to the focused track (goto next, goto previous)
     fn update_focused_track(&mut self, modifier: fn(usize, usize) -> (usize)) {
         if let Some(path) = &self.focused_track {
             let index = self.tracks.get_index_of(path);
