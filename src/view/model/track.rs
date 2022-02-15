@@ -1,10 +1,6 @@
-use std::collections::hash_map::DefaultHasher;
 use std::hash::Hash;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-
-use indexmap::set::IntoIter;
-use indexmap::{IndexMap, IndexSet};
 
 use crate::core::player::PreviewBuffer;
 
@@ -52,7 +48,7 @@ impl Ord for Track {
 
 impl Hash for Track {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.file_path.hash(&mut DefaultHasher::new())
+        self.file_path.hash(state)
     }
 }
 

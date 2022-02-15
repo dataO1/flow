@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex};
 use log::warn;
 
 use symphonia::core::{
-    audio::{SampleBuffer, SignalSpec},
+    audio::SampleBuffer,
     codecs::{Decoder, DecoderOptions},
     errors::Error,
-    formats::{FormatOptions, FormatReader},
+    formats::{FormatOptions, FormatReader, Track},
     io::MediaSourceStream,
     meta::MetadataOptions,
     probe::Hint,
@@ -20,18 +20,24 @@ use super::player::PreviewBuffer;
 //                             Analyzer                             //
 //------------------------------------------------------------------//
 
+pub enum AnalyzerError {
+    ReaderError,
+    UnsupportedFormat,
+    NoTrackFound,
+}
+
 pub enum Event {
     /// This event fires, when a analyzer is done analyzing
     DoneAnalyzing(String),
 }
 
 pub struct Analyzer {
+    /// The analyzed audio track
+    track: Option<Track>,
     /// FormatReader
     reader: Option<Box<dyn FormatReader>>,
     /// Decoder
     decoder: Option<Box<dyn Decoder>>,
-    /// Signal Spec
-    spec: Option<SignalSpec>,
     /// shared preview buffer
     preview_buffer: Arc<Mutex<PreviewBuffer>>,
 }
@@ -67,8 +73,8 @@ impl Analyzer {
         Self {
             reader: None,
             decoder: None,
-            spec: None,
             preview_buffer,
+            track: None,
         }
     }
 
@@ -117,24 +123,30 @@ impl Analyzer {
         self.reader = Some(probed.format);
     }
 
-    fn init_decoder(&mut self) {
+    fn init_decoder(&mut self) -> Result<(), AnalyzerError> {
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: false,
             ..Default::default()
         };
         if let Some(reader) = &mut self.reader {
-            let track = reader.default_track().unwrap();
-            let codec_params = &track.codec_params;
-            let mut decoder = symphonia::default::get_codecs()
-                .make(&codec_params, &dec_opts)
-                .unwrap();
-            let packet = reader.next_packet().unwrap();
-            // self.decoder = Some(decoder);
-            let decoded = decoder.decode(&packet).unwrap();
-            let spec = decoded.spec();
-            self.spec = Some(*spec);
-            self.decoder = Some(decoder);
-        };
+            let track = reader.default_track();
+            if let Some(track) = track {
+                self.track = Some(track.clone());
+                let codec_params = &track.codec_params;
+                let mut decoder = symphonia::default::get_codecs()
+                    .make(&codec_params, &dec_opts)
+                    .unwrap();
+                let packet = reader.next_packet().unwrap();
+                // self.decoder = Some(decoder);
+                let decoded = decoder.decode(&packet).unwrap();
+                self.decoder = Some(decoder);
+                Ok(())
+            } else {
+                Err(AnalyzerError::NoTrackFound)
+            }
+        } else {
+            Err(AnalyzerError::ReaderError)
+        }
     }
 
     fn analyze_sample_buffer(&self, sample_buffer: SampleBuffer<f32>) {

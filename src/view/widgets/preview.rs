@@ -32,17 +32,6 @@ impl PreviewWidget {
             preview_type,
         }
     }
-
-    /// tries to detect transients and gives them color
-    fn get_col(&self, prev: &Sample, curr: &Sample) -> Color {
-        let diff = curr - prev;
-        // try to detect transient
-        if diff > 0.1 {
-            Color::Red
-        } else {
-            Color::Green
-        }
-    }
 }
 
 impl Widget for PreviewWidget {
@@ -68,7 +57,6 @@ impl Widget for PreviewWidget {
             .x_bounds([-(x_max as f64), x_max as f64])
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
-                let mut prev = 0.0 as f32;
                 // center line
                 if self.preview_type == PreviewType::LivePreview {
                     ctx.draw(&Line {
@@ -92,11 +80,6 @@ impl Widget for PreviewWidget {
                     // fit sample (a value between 0 and 1) into area height
                     let x = (-(x_max as i16) + i as i16) as f64;
                     let y = (sample * (y_max as f32)) as f64;
-                    if self.preview_type == PreviewType::LivePreview {
-                        let y = 5. * y;
-                    } else {
-                        let y = 20.0 * y;
-                    }
                     // draw line
                     ctx.draw(&Line {
                         x1: x,
@@ -113,7 +96,6 @@ impl Widget for PreviewWidget {
                         y2: -y * 0.4,
                         color: Color::DarkGray,
                     });
-                    prev = sample;
                 }
             });
         canvas.render(area, buf);

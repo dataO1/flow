@@ -207,16 +207,15 @@ impl Player {
                 //------------------------------------------------------------------//
                 Ok(Message::Load(path)) => {
                     // Communicate to the reader, that we want to load a track
-                    self.state = PlayerState::Paused;
-                    self.init_reader(path);
-                    self.init_decoder();
-                    self.init_output();
+                    self.load(path);
                 }
                 Ok(Message::TogglePlay) => {
                     self.toggle_play();
                 }
                 Ok(Message::Close) => break,
-                Ok(msg) => {}
+                Ok(_msg) => {
+                    todo!()
+                }
                 Err(_) => {
                     // This happens, when there are still outstanding channels, but the message
                     // queue is empty, so just ignore this
@@ -224,7 +223,7 @@ impl Player {
             }
             // play buffered packets
             if let PlayerState::Playing = self.state {
-                if let Some(out) = &mut self.output {
+                if let Some(_) = &mut self.output {
                     self.play();
                     player_event_out
                         .send(player::Event::PlayedPackages(1))
@@ -233,7 +232,10 @@ impl Player {
             }
         }
     }
-    fn load(&mut self) {
+    fn load(&mut self, path: String) {
+        self.init_reader(path);
+        self.init_decoder();
+        self.init_output();
         self.state = PlayerState::Paused;
     }
 
@@ -245,7 +247,7 @@ impl Player {
 
     fn toggle_play(&mut self) {
         // check if audio output is valid
-        if let Some(out) = &mut self.output {
+        if let Some(_) = &mut self.output {
             match self.state {
                 PlayerState::Paused => self.state = PlayerState::Playing,
                 PlayerState::Playing => {
@@ -385,10 +387,4 @@ impl Player {
             self.decoder = Some(decoder);
         };
     }
-}
-
-#[derive(Copy, Clone)]
-struct PlayTrackOptions {
-    track_id: u32,
-    seek_ts: u64,
 }
