@@ -1,23 +1,18 @@
 use crate::core::{
     analyzer::{self, Analyzer},
-    player::{self},
+    player,
 };
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
-use indexmap::IndexMap;
-use std::{collections::HashMap, fs, io, path::Path, sync::Arc, time::Duration};
-use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
-    task::JoinHandle,
-};
+
+use std::{fs, io, path::Path, sync::Arc, time::Duration};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::Rect,
-    text::Spans,
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 use tui::{
     layout::{Constraint, Direction, Layout},
@@ -29,9 +24,9 @@ use crate::core::player::{Message, Player};
 use super::{
     model::track::Track,
     widgets::{
-        file_list::FileListWidget,
         popup::PopupWidget,
         preview::{PreviewType, PreviewWidget},
+        track_table::{TrackList, TrackTableWidget},
     },
 };
 
@@ -65,13 +60,9 @@ pub struct App {
     //                              Player                              //
     //------------------------------------------------------------------//
     /// hashmap of tracks, that were found in the music dir
-    tracks: IndexMap<String, Track>,
-    /// the track that is currently loaded by the player
-    currently_loaded_track: Option<String>,
+    tracks: TrackList,
     /// current player position in number of packets.
     player_position: usize,
-    /// current file path under cursor
-    focused_track: Option<String>,
 }
 
 impl Default for App {
@@ -79,10 +70,8 @@ impl Default for App {
         Self {
             player_position: 0,
             latest_event: String::from(""),
-            tracks: IndexMap::new(),
-            currently_loaded_track: None,
+            tracks: TrackList::default(),
             active_event_scope: EventScope::FileList,
-            focused_track: None,
         }
     }
 }
@@ -104,14 +93,8 @@ impl App {
         let player_handle = Player::spawn(player_messages_in, player_events_out);
         // list tracks TODO: read directory for files
         self.scan_dir(Path::new("/home/data01/Music/"));
-        self.focused_track = self
-            .tracks
-            .keys()
-            .into_iter()
-            .next()
-            .map(|file_path_ref| file_path_ref.to_owned());
         // spawn analyzers
-        for track in &mut self.tracks.values() {
+        for track in self.tracks.values() {
             Analyzer::spawn(
                 track.file_path.to_owned(),
                 Arc::clone(&track.preview_buffer),
@@ -145,9 +128,13 @@ impl App {
                     // Events with no modifiers (local)
                     match key.code {
                         // go up a track
-                        KeyCode::Char('j') => self.update_focused_track(usize::wrapping_add),
+                        KeyCode::Char('j') => {
+                            self.tracks.focus_next();
+                        }
                         // go down a track
-                        KeyCode::Char('k') => self.update_focused_track(usize::wrapping_sub),
+                        KeyCode::Char('k') => {
+                            self.tracks.focus_previous();
+                        }
                         /// Toggle Play
                         KeyCode::Char(' ') => {
                             player_messages_out.send(Message::TogglePlay).await;
@@ -158,11 +145,14 @@ impl App {
                             if self.active_event_scope != EventScope::FileList {
                                 ()
                             };
-                            if let Some(track) = &mut self.focused_track {
-                                player_messages_out.send(Message::Load(track.clone())).await;
-                                self.latest_event = String::from(format!("Loaded {}", track));
+                            let focused = self.tracks.load_focused();
+                            if let Some(track) = focused {
+                                player_messages_out
+                                    .send(Message::Load(track.file_path.clone()))
+                                    .await;
+                                self.latest_event =
+                                    String::from(format!("Loaded {}", track.file_path));
                                 self.player_position = 0;
-                                self.currently_loaded_track = Some(track.clone());
                             }
                         }
                         _ => self.latest_event = String::from("Unknown Command"),
@@ -221,20 +211,15 @@ impl App {
                 .as_ref(),
             )
             .split(f.size());
-        let body = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
-            .split(window[2]);
-        if let Some(path) = &self.currently_loaded_track {
-            let curr_track = self.tracks.get(path).unwrap();
+        if let Some(track) = self.tracks.get_loaded() {
             let live_preview = PreviewWidget::new(
                 PreviewType::LivePreview,
-                Arc::clone(&curr_track.preview_buffer),
+                Arc::clone(&track.preview_buffer),
                 self.player_position,
             );
             let preview = PreviewWidget::new(
                 PreviewType::Preview,
-                Arc::clone(&curr_track.preview_buffer),
+                Arc::clone(&track.preview_buffer),
                 self.player_position,
             );
 
@@ -251,13 +236,11 @@ impl App {
             )
             .alignment(tui::layout::Alignment::Center);
         f.render_widget(status_bar, window[3]);
-        let file_list_input = self.tracks.keys().cloned().collect();
-        let file_list = FileListWidget::new(
-            &file_list_input,
+        let file_list = TrackTableWidget::new(
+            &self.tracks,
             self.active_event_scope == EventScope::FileList,
-            &self.focused_track,
         );
-        f.render_widget(file_list, body[0]);
+        f.render_widget(file_list, window[2]);
         // let block = Block::default().title("popup").borders(Borders::ALL);
         // let popup = PopupWidget::new(block, 10, 90);
         // f.render_widget(popup, f.size());
@@ -280,25 +263,12 @@ impl App {
                         let file_path = entry.path().into_os_string().into_string().unwrap();
                         // let file_name = entry.file_name().into_string().unwrap();
                         let track = Track::new(String::from(file_path.clone()));
-                        self.tracks.insert(file_path, track);
+                        self.tracks.insert(track);
                         // self.tracks.insert(file_name, track);
                     };
                 }
             }
         };
         Ok(())
-    }
-
-    /// applies a modifier function to the focused track (goto next, goto previous)
-    fn update_focused_track(&mut self, modifier: fn(usize, usize) -> (usize)) {
-        if let Some(path) = &self.focused_track {
-            let index = self.tracks.get_index_of(path);
-            let new_index = index.map(|i| if i >= 0 { modifier(i, 1) } else { i });
-            if let Some(i) = new_index {
-                if let Some((k, _)) = self.tracks.get_index(i) {
-                    self.focused_track = Some(k.clone());
-                }
-            }
-        }
     }
 }

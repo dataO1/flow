@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use tui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},

@@ -302,6 +302,7 @@ dependencies = [
  "aubio",
  "cpal",
  "crossterm 0.23.0",
+ "hash",
  "indexmap",
  "itertools",
  "libpulse-binding",
@@ -336,6 +337,12 @@ name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
+
+[[package]]
+name = "hash"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd7c49bdb7afdaaa64b46da1b344452ff3f2e29a3e0efa09538c262f096de990"
 
 [[package]]
 name = "hashbrown"
