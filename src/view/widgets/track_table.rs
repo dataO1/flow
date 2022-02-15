@@ -20,7 +20,7 @@ impl<'a> TrackTableWidget<'a> {
 
     fn get_row(&self, track:&Track, focused: bool)-> Row{
         // || filename || analyzed_percentage
-        let progress = format!("{}%",( track.preview_buffer.lock().unwrap().progress()*100.0 ) as usize);
+        let progress = format!("{}%",( track.preview_buffer.lock().unwrap().progress()*100.0 ).ceil() as usize);
         let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
         Row::new(vec![Cell::from(track.file_name.to_string()), Cell::from(progress)]).style(style)
     }
