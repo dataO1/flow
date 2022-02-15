@@ -1,14 +1,14 @@
-use std::path::Path;
 
 use indexmap::IndexSet;
-use tui::{
-    style::{Color, Style},
-    text::Spans,
-    widgets::{Block, Borders, List, ListItem, Widget},
-};
+use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, Row, Table, Widget}};
 
 use crate::view::model::track::Track;
 
+//------------------------------------------------------------------//
+//                         TrackTableWidget                         //
+//------------------------------------------------------------------//
+
+/// A Widget for visualizing a TrackList in table form
 pub struct TrackTableWidget<'a> {
     tracks: &'a TrackList,
     focused: bool,
@@ -17,41 +17,42 @@ impl<'a> TrackTableWidget<'a> {
     pub fn new(tracks: &'a TrackList, focused: bool) -> Self {
         Self { tracks, focused }
     }
+
+    fn get_row(&self, track:&Track, focused: bool)-> Row{
+        // || filename || analyzed_percentage
+        let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
+        Row::new(vec![Cell::from(track.file_name.to_string()), Cell::from("1234")]).style(style)
+    }
+
+    fn get_header(&self) -> Row {
+        // || filename || analyzed_percentage
+        Row::new(vec!["File Name", "Analysis"]).bottom_margin(0).style(Style::default().add_modifier(Modifier::BOLD))
+    }
 }
 impl<'a> Widget for TrackTableWidget<'a> {
     fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-        let items: Vec<ListItem> = self
+        let focused_track = self.tracks.get_focused();
+        let header = self.get_header();
+        let num_colums = 2 as usize;
+        let auto_widths = vec![Constraint::Percentage(100/num_colums as u16);num_colums];
+        let rows: Vec<Row> = self
             .tracks
             .values()
             .into_iter()
             .map(|track| {
-                let file_name = Path::new(&track.file_path)
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap();
-                let spans = Spans::from(String::from(file_name));
-                let item = ListItem::new(spans);
-                let style = if let Some(focused) = self.tracks.get_focused() {
-                    if *focused == *track {
-                        Style::default().fg(Color::Green)
-                    } else {
-                        Style::default()
-                    }
-                } else {
-                    Style::default()
-                };
-                item.style(style)
+                self.get_row(track, Some(track) == focused_track)
             })
             .collect();
-        let list = List::new(items).block(Block::default().title("Files").borders(Borders::TOP));
-        list.render(area, buf);
+        let table = Table::new(rows)
+            .block(Block::default().title("Files").borders(Borders::TOP)).header(header).style(Style::default().fg(Color::White)).widths(&auto_widths).column_spacing(1).highlight_style(Style::default().fg(Color::Green));
+        table.render(area, buf);
     }
 }
 
 //------------------------------------------------------------------//
 //                            TrackList                             //
 //------------------------------------------------------------------//
+
 /// A struct for representing a list of tracks
 pub struct TrackList {
     tracks: IndexSet<Track>,
@@ -65,8 +66,12 @@ impl TrackList {
         &self.tracks
     }
 
-    pub fn sort() -> Self {
-        todo!()
+    pub fn sort(&mut self) {
+        self.tracks.sort();
+    }
+
+    pub fn sort_by(&mut self){
+        todo!();
     }
 
     /// returns the currently focused track

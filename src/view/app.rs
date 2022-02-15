@@ -24,7 +24,6 @@ use crate::core::player::{Message, Player};
 use super::{
     model::track::Track,
     widgets::{
-        popup::PopupWidget,
         preview::{PreviewType, PreviewWidget},
         track_table::{TrackList, TrackTableWidget},
     },
@@ -135,7 +134,7 @@ impl App {
                         KeyCode::Char('k') => {
                             self.tracks.focus_previous();
                         }
-                        /// Toggle Play
+                        // Toggle Play
                         KeyCode::Char(' ') => {
                             player_messages_out.send(Message::TogglePlay).await;
                             self.latest_event = String::from("TogglePlay");
@@ -223,7 +222,7 @@ impl App {
                 self.player_position,
             );
 
-            // f.render_widget(preview, chunks[1]);
+            f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
         }
 
@@ -236,11 +235,11 @@ impl App {
             )
             .alignment(tui::layout::Alignment::Center);
         f.render_widget(status_bar, window[3]);
-        let file_list = TrackTableWidget::new(
+        let track_table = TrackTableWidget::new(
             &self.tracks,
             self.active_event_scope == EventScope::FileList,
         );
-        f.render_widget(file_list, window[2]);
+        f.render_widget(track_table, window[2]);
         // let block = Block::default().title("popup").borders(Borders::ALL);
         // let popup = PopupWidget::new(block, 10, 90);
         // f.render_widget(popup, f.size());
