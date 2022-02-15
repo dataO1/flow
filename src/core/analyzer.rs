@@ -131,6 +131,9 @@ impl Analyzer {
         if let Some(reader) = &mut self.reader {
             let track = reader.default_track();
             if let Some(track) = track {
+                {
+                    self.preview_buffer.lock().unwrap().set_track(track);
+                }
                 self.track = Some(track.clone());
                 let codec_params = &track.codec_params;
                 let mut decoder = symphonia::default::get_codecs()
