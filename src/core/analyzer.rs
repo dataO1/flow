@@ -23,7 +23,9 @@ use tokio::{sync::mpsc::Sender, task::JoinHandle};
 /// the shared preview buffer of the track
 const PREVIEW_CACHE_MAX: usize = 1000;
 /// determines the number of samples in the preview buffer per packet of the original source
-pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 3;
+pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 2;
+
+pub type PreviewSample = f32;
 
 #[derive(Debug)]
 pub enum AnalyzerError {
@@ -110,6 +112,7 @@ impl Analyzer {
                 // decoder, but the length is not.
                 let duration = decoded.capacity() as u64;
                 let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+                // store sample data in interleaved format
                 sample_buf.copy_interleaved_ref(decoded.clone());
                 Ok(sample_buf)
             }
@@ -143,14 +146,12 @@ impl Analyzer {
         let decoder = symphonia::default::get_codecs()
             .make(&codec_params, &dec_opts)
             .unwrap();
-        // let packet = reader.next_packet().unwrap();
-        // self.decoder = Some(decoder);
-        // let decoded = decoder.decode(&packet).unwrap();
         Ok(decoder)
     }
 
     fn analyze_samples(&mut self, sample_buffer: SampleBuffer<f32>) {
         let samples = sample_buffer.samples();
+        self.track.set_estimated_samples_per_packet(samples.len());
         // cache decoded frames
         self.sample_buf.push(samples.to_owned());
         // cache downsampled frames
@@ -164,7 +165,7 @@ impl Analyzer {
         }
     }
 
-    fn downsample_to_preview(&self, samples: &[f32]) -> Vec<f32> {
+    fn downsample_to_preview(&self, samples: &[f32]) -> Vec<PreviewSample> {
         let chunk_size = samples.len() / PREVIEW_SAMPLES_PER_PACKET;
         let preview_samples = samples
             .into_iter()

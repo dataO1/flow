@@ -22,9 +22,12 @@ impl<'a> TrackTableWidget<'a> {
 
     fn get_row(&self, track:&Track, focused: bool)-> Row{
         // || filename || analyzed_percentage
-        // let progress = format!("{}%",( track.preview_buffer.progress()*100.0 ).ceil() as usize);
+        //
+        // if progress could be computed return it in formatted form, else return string "NaN"
+        let progress_string = track.progress().map_or(String::from("Nan"),|progress|{ format!("{}%", progress) });
         let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
-        Row::new(vec![Cell::from(track.file_name.to_string())]).style(style)
+        Row::new(vec![Cell::from(track.file_name.to_string())
+                 , Cell::from(progress_string)]).style(style)
     }
 
     fn get_header(&self) -> Row {
