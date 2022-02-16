@@ -1,6 +1,6 @@
 use crate::core::analyzer;
 use crate::view::model;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use itertools::Itertools;
 use log::warn;
@@ -19,7 +19,9 @@ use tokio::{sync::mpsc::Sender, task::JoinHandle};
 //------------------------------------------------------------------//
 //                             Analyzer                             //
 //------------------------------------------------------------------//
-const MAX_CACHE_SIZE: usize = 1000;
+/// Max number of preview samples to cache before sending to
+/// the shared preview buffer of the track
+const PREVIEW_CACHE_MAX: usize = 200;
 /// determines the number of samples in the preview buffer per packet of the original source
 pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 3;
 
@@ -37,6 +39,8 @@ pub enum Event {
 }
 
 pub struct Analyzer {
+    /// analyzer event sender
+    analyzer_event_out: Sender<Event>,
     /// The track to be analyzed
     track: Arc<model::track::Track>,
     /// FormatReader
@@ -44,9 +48,9 @@ pub struct Analyzer {
     /// Decoder
     decoder: Box<dyn Decoder>,
     /// Local Cache for analyzed samples
-    sample_cache: Vec<f32>,
-    /// analyzer event sender
-    analyzer_event_out: Sender<Event>,
+    sample_buf: Vec<Vec<f32>>,
+    /// Local Cache for downsampled samples
+    preview_buf: Vec<f32>,
 }
 
 impl Analyzer {
@@ -56,7 +60,9 @@ impl Analyzer {
             // messages
             loop {
                 match analyzer.decode() {
-                    Ok(samples) => analyzer.analyze_samples(samples).await,
+                    Ok(samples) => {
+                        analyzer.analyze_samples(samples);
+                    }
                     Err(_) => {
                         // Error decoding
                         // this means the stream is done?
@@ -82,7 +88,8 @@ impl Analyzer {
         Self {
             reader,
             decoder,
-            sample_cache: vec![],
+            sample_buf: vec![],
+            preview_buf: vec![],
             track,
             analyzer_event_out,
         }
@@ -142,16 +149,22 @@ impl Analyzer {
         Ok(decoder)
     }
 
-    async fn analyze_samples(&mut self, sample_buffer: SampleBuffer<f32>) {
-        self.sample_cache.extend_from_slice(sample_buffer.samples());
-        // as soon as we have enough cached samples send them to the app
-        if self.sample_cache.len() >= MAX_CACHE_SIZE {
-            let mut downsampled = self.downsample_to_preview(&self.sample_cache);
-            self.track.append(&mut downsampled);
+    fn analyze_samples(&mut self, sample_buffer: SampleBuffer<f32>) {
+        let samples = sample_buffer.samples();
+        // cache decoded frames
+        self.sample_buf.push(samples.to_owned());
+        // cache downsampled frames
+        self.preview_buf
+            .append(&mut self.downsample_to_preview(samples));
+        // as soon as we have enough cached preview samples send them to the shared buffer of
+        // the track
+        if self.preview_buf.len() >= PREVIEW_CACHE_MAX {
+            self.track.append_preview_samples(&mut self.preview_buf);
+            self.preview_buf = vec![];
         }
     }
 
-    fn downsample_to_preview(&self, samples: &Vec<f32>) -> Vec<f32> {
+    fn downsample_to_preview(&self, samples: &[f32]) -> Vec<f32> {
         let chunk_size = samples.len() / PREVIEW_SAMPLES_PER_PACKET;
         let preview_samples = samples
             .into_iter()
@@ -164,7 +177,9 @@ impl Analyzer {
                     num += 1;
                     sum += sample;
                 }
-                sum / num as f32
+                let mean = sum / num as f32;
+                // assert!(mean > 0.0);
+                mean
             })
             .collect();
         preview_samples

@@ -1,6 +1,6 @@
 use std::hash::Hash;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use symphonia::core::codecs::CodecParameters;
 
@@ -21,7 +21,7 @@ pub struct Track {
     /// the file name
     pub file_name: String,
     /// downsampled version of decoded frames for preview
-    preview_buffer: Mutex<Vec<f32>>,
+    preview_buffer: RwLock<Vec<f32>>,
 }
 
 impl Track {
@@ -29,7 +29,7 @@ impl Track {
         let file_name = String::from(Path::new(&file_path).file_name().unwrap().to_str().unwrap());
         Self {
             meta: TrackMeta::default(),
-            preview_buffer: Mutex::new(vec![]),
+            preview_buffer: RwLock::new(vec![]),
             file_path,
             file_name,
             codec_params,
@@ -37,14 +37,14 @@ impl Track {
     }
 
     /// append preview samples to preview buffer
-    pub fn append(&self, preview_samples: &mut Vec<f32>) {
+    pub fn append_preview_samples(&self, preview_samples: &mut Vec<f32>) {
         // Hack: this sets the frames per packet
         // if self.avg_frames_per_packet == None {
         //     self.avg_frames_per_packet = Some((samples.len() / 2) as u64);
         // }
         // since the samples in the packets are interlaeved (2 channels), we have to adjust the
         // chunk size
-        self.preview_buffer.lock().unwrap().append(preview_samples);
+        self.preview_buffer.write().unwrap().append(preview_samples);
     }
 
     pub fn preview(
@@ -53,7 +53,8 @@ impl Track {
         player_position: usize,
         playhead_position: usize,
     ) -> Vec<f32> {
-        let preview_buffer = &mut *self.preview_buffer.lock().unwrap();
+        let mut preview_buffer = self.preview_buffer.read().unwrap().to_owned();
+        // println!("{}", preview_buffer.len());
         let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET;
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size as isize / 2);
@@ -65,7 +66,7 @@ impl Track {
         } else {
             let diff = diff.abs() as usize;
             let mut padding = vec![0.0 as f32; diff];
-            padding.append(preview_buffer);
+            padding.append(&mut preview_buffer);
             padding.to_owned()
         }
     }
