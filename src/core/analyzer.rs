@@ -21,7 +21,7 @@ use tokio::{sync::mpsc::Sender, task::JoinHandle};
 //------------------------------------------------------------------//
 /// Max number of preview samples to cache before sending to
 /// the shared preview buffer of the track
-const PREVIEW_CACHE_MAX: usize = 1000;
+const PREVIEW_CACHE_MAX: usize = 2000;
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
 pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 2;

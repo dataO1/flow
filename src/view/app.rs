@@ -124,7 +124,7 @@ impl App {
         //------------------------------------------------------------------//
         //                            Key Events                            //
         //------------------------------------------------------------------//
-        if let Ok(true) = event::poll(Duration::from_millis(1)) {
+        if let Ok(true) = event::poll(Duration::from_micros(1)) {
             if let event::Event::Key(key) = event::read().unwrap() {
                 if let KeyModifiers::NONE = key.modifiers {
                     // Events with no modifiers (local)

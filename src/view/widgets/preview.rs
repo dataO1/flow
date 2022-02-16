@@ -47,6 +47,8 @@ impl<'a> Widget for PreviewWidget<'a> {
                     let x = (-(x_max as i16) + i as i16) as f64;
                     let y = (sample * (y_max as f32)) as f64;
                     let y = y * 10.;
+                    // // clip the signal if too hight
+                    // let y = if y > (y_max as f64) { y_max as f64 } else { y };
                     ctx.draw(&Line {
                         x1: x,
                         x2: x,
