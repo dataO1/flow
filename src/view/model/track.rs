@@ -26,6 +26,8 @@ pub struct Track {
     /// number of samples per packet
     /// This is used to compute the progress of the analysis
     estimated_samples_per_packet: RwLock<Option<usize>>,
+    /// marks the track as analyzed
+    analyzed: bool,
 }
 
 impl Track {
@@ -38,6 +40,7 @@ impl Track {
             file_name,
             codec_params,
             estimated_samples_per_packet: RwLock::new(None),
+            analyzed: false,
         }
     }
 
@@ -71,29 +74,33 @@ impl Track {
     /// returns the analysis progress for this track.
     /// The result is a number between 0 and 100 (%).
     pub fn progress(&self) -> Option<u8> {
-        let mut res = None;
-        let estimated_samples_per_packet =
-            self.estimated_samples_per_packet.read().unwrap().clone();
-        // if codec params contains max_frames_per_packet use that
-        // else if estimated_samples_per_packet is set use that
-        // else default to 0
-        let max_frames_per_packet = self
-            .codec_params
-            .max_frames_per_packet
-            .or(estimated_samples_per_packet.map(|x| x as u64));
-        // when max_frames_per_packet and number of total frames in the track are known we can
-        // compute the progress
-        if let (Some(max_frames_per_packet), Some(n_frames)) =
-            (max_frames_per_packet, self.codec_params.n_frames)
-        {
-            let n_analyzed_packets =
-                self.preview_buffer.read().unwrap().len() / PREVIEW_SAMPLES_PER_PACKET;
-            let n_analyzed_frames = n_analyzed_packets as u64 * max_frames_per_packet;
-            // std::thread::sleep(Duration::from_millis(100));
-            // println!("{}/{}", n_analyzed_packets, n_frames);
-            res = Some((n_analyzed_frames as f64 / n_frames as f64 * 100.0).ceil() as u8);
+        if self.analyzed {
+            Some(100)
+        } else {
+            let mut res = None;
+            let estimated_samples_per_packet =
+                self.estimated_samples_per_packet.read().unwrap().clone();
+            // if codec params contains max_frames_per_packet use that
+            // else if estimated_samples_per_packet is set use that
+            // else default to 0
+            let max_frames_per_packet = self
+                .codec_params
+                .max_frames_per_packet
+                .or(estimated_samples_per_packet.map(|x| x as u64));
+            // when max_frames_per_packet and number of total frames in the track are known we can
+            // compute the progress
+            if let (Some(max_frames_per_packet), Some(n_frames)) =
+                (max_frames_per_packet, self.codec_params.n_frames)
+            {
+                let n_analyzed_packets =
+                    self.preview_buffer.read().unwrap().len() / PREVIEW_SAMPLES_PER_PACKET;
+                let n_analyzed_frames = n_analyzed_packets as u64 * max_frames_per_packet;
+                // std::thread::sleep(Duration::from_millis(100));
+                // println!("{}/{}", n_analyzed_packets, n_frames);
+                res = Some((n_analyzed_frames as f64 / n_frames as f64 * 100.0).ceil() as u8);
+            }
+            res
         }
-        res
     }
 
     /// returns the preview samples for a given player position and target screen size
@@ -108,7 +115,7 @@ impl Track {
         // println!("{}", preview_buffer.len());
         let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET;
         // check if enough sampes exist for target resolution
-        let diff = player_pos as isize - (target_size as isize / 2);
+        let diff = player_pos as isize - (target_size / 2) as isize;
         if diff >= 0 {
             // if yes return buffer content
             let l = player_pos as f32 - (target_size as f32 / 2.0);
@@ -117,7 +124,9 @@ impl Track {
         } else {
             let diff = diff.abs() as usize;
             let mut padding = vec![0.0 as f32; diff];
-            padding.extend_from_slice(&preview_buffer[0..target_size - diff]);
+            if preview_buffer.len() > 0 {
+                padding.extend_from_slice(&preview_buffer[0..target_size - diff]);
+            };
             padding.to_owned()
         }
     }

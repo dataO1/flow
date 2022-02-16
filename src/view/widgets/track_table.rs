@@ -25,6 +25,7 @@ impl<'a> TrackTableWidget<'a> {
         //
         // if progress could be computed return it in formatted form, else return string "NaN"
         let progress_string = track.progress().map_or(String::from("Nan"),|progress|{ format!("{}%", progress) });
+        // let progress_string = String::from("0%")
         let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
         Row::new(vec![Cell::from(track.file_name.to_string())
                  , Cell::from(progress_string)]).style(style)
