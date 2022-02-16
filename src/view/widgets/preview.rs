@@ -7,9 +7,10 @@ use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
 use crate::core::player::PreviewBuffer;
+use crate::view::model::track::Track;
 
-pub struct PreviewWidget {
-    preview_buf: Arc<Mutex<PreviewBuffer>>,
+pub struct PreviewWidget<'a> {
+    track: &'a Track,
     player_pos: usize,
     preview_type: PreviewType,
 }
@@ -20,36 +21,23 @@ pub enum PreviewType {
     Preview,
 }
 
-impl PreviewWidget {
-    pub fn new(
-        preview_type: PreviewType,
-        preview_buf: Arc<Mutex<PreviewBuffer>>,
-        player_pos: usize,
-    ) -> Self {
+impl<'a> PreviewWidget<'a> {
+    pub fn new(preview_type: PreviewType, track: &'a Track, player_pos: usize) -> Self {
         Self {
-            preview_buf,
             player_pos,
             preview_type,
+            track,
         }
     }
 }
 
-impl Widget for PreviewWidget {
+impl<'a> Widget for PreviewWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // this determines how many samples are "chunked" and thus displayed together as one line,
         // to fit the resolution of the given area
         let x_max = area.width as usize;
         let y_max = area.height as usize;
         let playhead_offset_from_center = 0;
-        let preview_buf = self.preview_buf.lock().unwrap();
-        let source = match self.preview_type {
-            PreviewType::Preview => preview_buf.get_preview(x_max * 2),
-            PreviewType::LivePreview => preview_buf.get_live_preview(
-                x_max * 2,
-                self.player_pos,
-                playhead_offset_from_center,
-            ),
-        };
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let canvas = Canvas::default()
@@ -69,7 +57,9 @@ impl Widget for PreviewWidget {
                 }
                 ctx.layer();
                 // for i in (1..(area.width as usize)) {
-                for (i, sample) in source
+                for (i, sample) in self
+                    .track
+                    .preview(x_max * 4, self.player_pos, playhead_offset_from_center)
                     .to_owned()
                     .into_iter()
                     .take(x_max * 2 as usize)

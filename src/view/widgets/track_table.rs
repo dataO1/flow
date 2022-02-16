@@ -1,4 +1,6 @@
 
+use std::sync::{Arc, Mutex};
+
 use indexmap::IndexSet;
 use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, Row, Table, Widget}};
 
@@ -20,9 +22,9 @@ impl<'a> TrackTableWidget<'a> {
 
     fn get_row(&self, track:&Track, focused: bool)-> Row{
         // || filename || analyzed_percentage
-        let progress = format!("{}%",( track.preview_buffer.lock().unwrap().progress()*100.0 ).ceil() as usize);
+        // let progress = format!("{}%",( track.preview_buffer.progress()*100.0 ).ceil() as usize);
         let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
-        Row::new(vec![Cell::from(track.file_name.to_string()), Cell::from(progress)]).style(style)
+        Row::new(vec![Cell::from(track.file_name.to_string())]).style(style)
     }
 
     fn get_header(&self) -> Row {
@@ -32,7 +34,6 @@ impl<'a> TrackTableWidget<'a> {
 }
 impl<'a> Widget for TrackTableWidget<'a> {
     fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-        let focused_track = self.tracks.get_focused();
         let header = self.get_header();
         let num_colums = 2 as usize;
         let auto_widths = vec![Constraint::Percentage(100/num_colums as u16);num_colums];
@@ -41,7 +42,8 @@ impl<'a> Widget for TrackTableWidget<'a> {
             .values()
             .into_iter()
             .map(|track| {
-                self.get_row(track, Some(track) == focused_track)
+                let focused = self.tracks.get_focused().map(|f| f == *track).unwrap_or(false);
+                self.get_row(&track, focused)
             })
             .collect();
         let table = Table::new(rows)
@@ -56,37 +58,41 @@ impl<'a> Widget for TrackTableWidget<'a> {
 
 /// A struct for representing a list of tracks
 pub struct TrackList {
-    tracks: IndexSet<Track>,
+    tracks: IndexSet<Arc<Track>>,
     focused_track: Option<usize>,
     loaded_track: Option<usize>,
 }
 
 impl TrackList {
     /// returns a vector of tracks
-    pub fn values(&self) -> &IndexSet<Track> {
+    pub fn values(&self) -> &IndexSet<Arc<Track>> {
         &self.tracks
     }
 
-    pub fn sort(&mut self) {
-        self.tracks.sort();
-    }
+    // pub fn sort(&mut self) {
+    //     self.tracks.sort();
+    // }
 
     pub fn sort_by(&mut self){
         todo!();
     }
 
     /// returns the currently focused track
-    pub fn get_focused(&self) -> Option<&Track> {
-        self.focused_track.map(|i| &self.tracks[i])
+    pub fn get_focused(&self) -> Option<Arc<Track>> {
+        self.focused_track.map(|i| { 
+            let track = &self.tracks[i];
+            Arc::clone(track) })
     }
 
     /// returns the currently loaded track
-    pub fn get_loaded(&self) -> Option<&Track> {
-        self.loaded_track.map(|i| &self.tracks[i])
+    pub fn get_loaded(&self) -> Option<Arc<Track>> {
+        self.loaded_track.map(|i| { 
+            let track = &self.tracks[i];
+            Arc::clone(track) })
     }
 
     /// focus next track and return it
-    pub fn focus_next(&mut self) -> Option<&Track> {
+    pub fn focus_next(&mut self) -> Option<Arc<Track>> {
         let new_index = self.focused_track.map(|i| {
             // check bounds
             if self.tracks.is_empty() {
@@ -106,7 +112,7 @@ impl TrackList {
     }
 
     /// focus previous track and return it
-    pub fn focus_previous(&mut self) -> Option<&Track> {
+    pub fn focus_previous(&mut self) -> Option<Arc<Track>> {
         let new_index = self.focused_track.map(|i|
                // check bound 
                if i > 0 { i - 1 } else { 
@@ -120,17 +126,17 @@ impl TrackList {
     }
 
     /// mark a track as loaded and return reference of loaded track
-    pub fn load_focused(&mut self) -> Option<&Track> {
+    pub fn load_focused(&mut self) -> Option<Arc<Track>> {
         self.loaded_track = self.focused_track;
         self.get_focused()
     }
 
     /// push a single track to the list
-    pub fn insert(&mut self, track: Track) {
+    pub fn insert(&mut self, track: Arc<Track>) {
         if self.tracks.len() == 0 {
             self.focused_track = Some(0);
         }
-        self.tracks.insert(track);
+        self.tracks.insert(Arc::clone(&track));
     }
 }
 

@@ -91,14 +91,10 @@ impl App {
         // spawn player
         let player_handle = Player::spawn(player_messages_in, player_events_out);
         // list tracks TODO: read directory for files
-        self.scan_dir(Path::new("/home/data01/Music/"));
+        let files = self.scan_dir(Path::new("/home/data01/Music/")).unwrap();
         // spawn analyzers
-        for track in self.tracks.values() {
-            Analyzer::spawn(
-                track.file_path.to_owned(),
-                Arc::clone(&track.preview_buffer),
-                analyzer_event_out.clone(),
-            );
+        for file in files {
+            Analyzer::spawn(file, analyzer_event_out.clone());
         }
         loop {
             terminal.draw(|f| self.render(f))?;
@@ -187,6 +183,7 @@ impl App {
                 analyzer::Event::DoneAnalyzing(track) => {
                     self.latest_event = String::from(format!("Analyzed: {}", track));
                 }
+                analyzer::Event::NewTrack(track) => self.tracks.insert(track),
             }
         }
     }
@@ -211,16 +208,9 @@ impl App {
             )
             .split(f.size());
         if let Some(track) = self.tracks.get_loaded() {
-            let live_preview = PreviewWidget::new(
-                PreviewType::LivePreview,
-                Arc::clone(&track.preview_buffer),
-                self.player_position,
-            );
-            let preview = PreviewWidget::new(
-                PreviewType::Preview,
-                Arc::clone(&track.preview_buffer),
-                self.player_position,
-            );
+            let live_preview =
+                PreviewWidget::new(PreviewType::LivePreview, &track, self.player_position);
+            let preview = PreviewWidget::new(PreviewType::Preview, &track, self.player_position);
 
             f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
@@ -247,13 +237,15 @@ impl App {
 
     /// scans a directory for tracks
     /// Supported file types are .mp3 .flac .wav
-    fn scan_dir(&mut self, dir: &Path) -> io::Result<()> {
+    fn scan_dir(&mut self, dir: &Path) -> io::Result<Vec<String>> {
+        let mut res = vec![];
         if dir.is_dir() {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() {
-                    self.scan_dir(&path)?;
+                    let mut sub_dirs = self.scan_dir(&path)?;
+                    res.append(&mut sub_dirs);
                 } else {
                     //TODO: use path object for hashmap
                     let extension = path.extension().unwrap().to_str().unwrap();
@@ -261,13 +253,11 @@ impl App {
                     if supported_extensions.contains(&extension) {
                         let file_path = entry.path().into_os_string().into_string().unwrap();
                         // let file_name = entry.file_name().into_string().unwrap();
-                        let track = Track::new(String::from(file_path.clone()));
-                        self.tracks.insert(track);
-                        // self.tracks.insert(file_name, track);
+                        res.push(file_path);
                     };
                 }
             }
         };
-        Ok(())
+        Ok(res)
     }
 }
