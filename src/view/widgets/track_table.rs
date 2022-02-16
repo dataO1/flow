@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexSet;
-use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, Row, Table, Widget}};
+use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, LineGauge, Row, Table, Widget}};
 
 use crate::view::model::track::Track;
 
@@ -20,13 +20,14 @@ impl<'a> TrackTableWidget<'a> {
         Self { tracks, focused }
     }
 
+    /// returns a TUI Row objed, with specific styling based on, whether the row is focused or an
+    /// alternating row (every other row)
     fn get_row(&self, track:&Track, focused: bool)-> Row{
         // || filename || analyzed_percentage
         //
         // if progress could be computed return it in formatted form, else return string "NaN"
         let progress_string = track.progress().map_or(String::from("Nan"),|progress|{ format!("{}%", progress) });
-        // let progress_string = String::from("0%")
-        let style = if focused {Style::default().fg(Color::Green)}else {Style::default()};
+        let style = if focused {Style::default().fg(Color::Black).bg(Color::DarkGray)}else {Style::default()};
         Row::new(vec![Cell::from(track.file_name.to_string())
                  , Cell::from(progress_string)]).style(style)
     }
@@ -51,7 +52,7 @@ impl<'a> Widget for TrackTableWidget<'a> {
             })
             .collect();
         let table = Table::new(rows)
-            .block(Block::default().title("Files").borders(Borders::TOP)).header(header).style(Style::default().fg(Color::White)).widths(&auto_widths).column_spacing(1).highlight_style(Style::default().fg(Color::Green));
+            .block(Block::default().title("Files").borders(Borders::TOP)).header(header).style(Style::default().fg(Color::White)).widths(&auto_widths).column_spacing(1);
         table.render(area, buf);
     }
 }
