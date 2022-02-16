@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crate::core::player;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
@@ -36,8 +38,8 @@ pub enum Message {
 
 pub enum Event {
     // Preview(Box<usizeBuffer>),
-    /// Played x messages
-    PlayedPackages(usize),
+// Played x messages
+// PlayedPackages(usize),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -52,7 +54,7 @@ pub struct Player {
     /// player state
     state: PlayerState,
     /// player position in packages
-    position: usize,
+    position: Arc<Mutex<usize>>,
     /// Formatreader
     reader: Option<Box<dyn FormatReader>>,
     /// Decoder
@@ -71,22 +73,23 @@ impl Player {
     /// Initializes a new thread, that handles Commands.
     /// Returns a Sender, which can be used to send messages to the player
     pub fn spawn(
+        player_position: Arc<Mutex<usize>>,
         player_message_in: Receiver<player::Message>,
         player_event_out: Sender<player::Event>,
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
         // Start the command handler thread
         tokio::spawn(async move {
-            let mut player = Player::new();
+            let mut player = Player::new(player_position);
             player.event_loop(player_message_in, player_event_out).await
         })
     }
 
-    fn new() -> Self {
+    fn new(position: Arc<Mutex<usize>>) -> Self {
         // the frame buffer. TODO: use sensible vector sizes
         Self {
             state: PlayerState::Unloaded,
-            position: 0,
+            position,
             reader: None,
             decoder: None,
             output: None,
@@ -125,9 +128,6 @@ impl Player {
             if let PlayerState::Playing = self.state {
                 if let Some(_) = &mut self.output {
                     self.play();
-                    player_event_out
-                        .send(player::Event::PlayedPackages(1))
-                        .await;
                 }
             }
         }
@@ -137,6 +137,7 @@ impl Player {
         self.init_decoder();
         self.init_output();
         self.state = PlayerState::Paused;
+        *self.position.lock().unwrap() = 0;
     }
 
     fn pause(&mut self) {
@@ -165,7 +166,7 @@ impl Player {
     }
 
     fn play(&mut self) {
-        self.position += 1;
+        *self.position.lock().unwrap() += 1;
         match (&mut self.reader, &mut self.decoder, &mut self.output) {
             (Some(reader), Some(decoder), Some(out)) => {
                 let packet = reader.next_packet().unwrap();

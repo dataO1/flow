@@ -8,7 +8,12 @@ use crossterm::{
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
 
-use std::{fs, io, path::Path, time::Duration};
+use std::{
+    fs, io,
+    path::Path,
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -58,13 +63,13 @@ pub struct App {
     /// hashmap of tracks, that were found in the music dir
     tracks: TrackList,
     /// current player position in number of packets.
-    player_position: usize,
+    player_position: Arc<Mutex<usize>>,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
-            player_position: 0,
+            player_position: Arc::new(Mutex::new(0)),
             latest_event: String::from(""),
             tracks: TrackList::default(),
             active_event_scope: EventScope::FileList,
@@ -86,7 +91,11 @@ impl App {
         let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
         let (analyzer_event_out, mut analyzer_event_in) = channel::<analyzer::Event>(10);
         // spawn player
-        let player_handle = Player::spawn(player_messages_in, player_events_out);
+        let player_handle = Player::spawn(
+            Arc::clone(&self.player_position),
+            player_messages_in,
+            player_events_out,
+        );
         // list tracks TODO: read directory for files
         let files = self.scan_dir(Path::new("/home/data01/Music/")).unwrap();
         // spawn analyzers
@@ -144,7 +153,6 @@ impl App {
                                     .await;
                                 self.latest_event =
                                     String::from(format!("Loaded {}", track.file_path));
-                                self.player_position = 0;
                             }
                         }
                         _ => self.latest_event = String::from("Unknown Command"),
@@ -165,13 +173,13 @@ impl App {
         //------------------------------------------------------------------//
         //                          Player Events                           //
         //------------------------------------------------------------------//
-        if let Ok(ev) = player_events_in.try_recv() {
-            match ev {
-                player::Event::PlayedPackages(num_packets) => {
-                    self.player_position += num_packets;
-                }
-            }
-        }
+        // if let Ok(ev) = player_events_in.try_recv() {
+        //     match ev {
+        //         player::Event::PlayedPackages(num_packets) => {
+        //             self.player_position += num_packets;
+        //         }
+        //     }
+        // }
         //------------------------------------------------------------------//
         //                         Analyzer Events                          //
         //------------------------------------------------------------------//
@@ -205,11 +213,14 @@ impl App {
             )
             .split(f.size());
         if let Some(track) = self.tracks.get_loaded() {
-            let live_preview =
-                PreviewWidget::new(PreviewType::LivePreview, &track, self.player_position);
-            let preview = PreviewWidget::new(PreviewType::Preview, &track, self.player_position);
+            let live_preview = PreviewWidget::new(
+                PreviewType::LivePreview,
+                &track,
+                *self.player_position.lock().unwrap(),
+            );
+            // let preview = PreviewWidget::new(PreviewType::Preview, &track, self.player_position);
 
-            f.render_widget(preview, window[1]);
+            // f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
         }
 

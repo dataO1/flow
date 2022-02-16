@@ -14,12 +14,12 @@ use crate::core::analyzer::PREVIEW_SAMPLES_PER_PACKET;
 pub struct Track {
     /// track meta data
     pub meta: TrackMeta,
-    /// codec parameters
-    pub codec_params: CodecParameters,
     /// the file path
     pub file_path: String,
     /// the file name
     pub file_name: String,
+    /// codec parameters
+    codec_params: CodecParameters,
     /// downsampled version of decoded frames for preview
     preview_buffer: RwLock<Vec<f32>>,
 }
