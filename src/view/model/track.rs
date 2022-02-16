@@ -66,7 +66,7 @@ impl Track {
         } else {
             let diff = diff.abs() as usize;
             let mut padding = vec![0.0 as f32; diff];
-            padding.append(&mut preview_buffer);
+            padding.extend_from_slice(&preview_buffer[0..target_size - diff]);
             padding.to_owned()
         }
     }

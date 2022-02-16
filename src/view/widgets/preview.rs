@@ -57,7 +57,7 @@ impl<'a> Widget for PreviewWidget<'a> {
                 // for i in (1..(area.width as usize)) {
                 for (i, sample) in self
                     .track
-                    .preview(x_max * 4, self.player_pos, playhead_offset_from_center)
+                    .preview(x_max * 2, self.player_pos, playhead_offset_from_center)
                     .to_owned()
                     .into_iter()
                     .take(x_max * 2 as usize)
