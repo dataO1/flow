@@ -1,17 +1,14 @@
 use crate::core::player;
-use itertools::Itertools;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
 use log::warn;
 use symphonia::core::audio::RawSampleBuffer;
-use symphonia::core::audio::SampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
 use symphonia::core::codecs::Decoder;
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::FormatReader;
-use symphonia::core::formats::Track;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -49,143 +46,6 @@ pub enum PlayerState {
     Paused,
     Playing,
     Closed,
-}
-
-#[derive(Debug)]
-pub struct PreviewBuffer {
-    /// A downsampled version of the raw packets. 1 Packet = x preview sample, where x is the
-    /// samples_per_packet attribute
-    buf: Vec<f32>,
-    /// determines the number of samples for preview per packet. Since samples are interleaved,
-    /// this should be a multiple of the number of channels (usually two for stereo)
-    samples_per_packet: usize,
-    /// the analyzed audio track
-    track: Option<Track>,
-    /// frames per packet. this is needed, when the track doesnt have this set
-    avg_frames_per_packet: Option<u64>,
-}
-
-impl PreviewBuffer {
-    /// push packet to internal buffer
-    pub fn push(&mut self, packet: &SampleBuffer<f32>) {
-        // downsample packet
-        let samples = packet.samples();
-        // Hack: this sets the frames per packet
-        if self.avg_frames_per_packet == None {
-            self.avg_frames_per_packet = Some((samples.len() / 2) as u64);
-        }
-        // since the samples in the packets are interlaeved (2 channels), we have to adjust the
-        // chunk size
-        let chunk_size = samples.len() / (self.samples_per_packet);
-        let mut preview_samples: Vec<f32> = samples
-            .into_iter()
-            .chunks(chunk_size)
-            .into_iter()
-            .map(|chunk| {
-                let mut num = 0;
-                let mut sum: f32 = 0.0;
-                for sample in chunk {
-                    num += 1;
-                    sum += sample;
-                }
-                sum / num as f32
-            })
-            .collect();
-        self.buf.append(&mut preview_samples);
-    }
-
-    /// length of the internal buffer
-    pub fn len(&self) -> usize {
-        self.buf.len()
-    }
-
-    pub fn set_track(&mut self, track: &Track) {
-        self.track = Some(track.to_owned());
-    }
-
-    /// returns the progress of the analysis. Result is between 0 and 1
-    pub fn progress(&mut self) -> f32 {
-        let mut progress = 0.0;
-        if let Some(track) = &self.track {
-            let cod_params = &track.codec_params;
-            if let (Some(n_frames)) = (cod_params.n_frames) {
-                let max_frames_per_packet = if cod_params.max_frames_per_packet != None {
-                    cod_params.max_frames_per_packet.unwrap()
-                } else {
-                    if let Some(fpp) = self.avg_frames_per_packet {
-                        fpp
-                    } else {
-                        1
-                    }
-                };
-                let n_total_packets = n_frames / max_frames_per_packet;
-                let n_analyzed_packets = self.buf.len() / self.samples_per_packet;
-                progress = (n_analyzed_packets as f32 / n_total_packets as f32) as f32;
-            } else {
-                println!("{:#?}", cod_params.n_frames);
-            }
-        }
-        progress
-    }
-
-    /// Returns a downsampled preview version
-    pub fn get_live_preview(
-        &self,
-        target_size: usize,
-        player_pos: usize,
-        playhead_position: usize,
-    ) -> Vec<f32> {
-        let player_pos = player_pos * self.samples_per_packet;
-        // check if enough sampes exist for target resolution
-        let diff = player_pos as isize - (target_size as isize / 2);
-        if diff >= 0 {
-            // if yes return buffer content
-            let l = player_pos as f32 - (target_size as f32 / 2.0);
-            let r = player_pos as f32 + (target_size as f32 / 2.0);
-            self.buf[l as usize..r as usize].to_owned()
-        } else {
-            let diff = diff.abs() as usize;
-            let mut padding = vec![0.0 as f32; diff];
-            padding.append(&mut self.buf.to_vec());
-            padding.to_owned()
-        }
-    }
-
-    pub fn get_preview(&self, target_size: usize) -> Vec<f32> {
-        if target_size > self.len() {
-            vec![0.0; target_size]
-        } else {
-            let chunk_size = (self.len() as f32 / target_size as f32).floor() as usize;
-            let preview: Vec<f32> = self
-                .buf
-                .to_owned()
-                .into_iter()
-                .chunks(chunk_size)
-                .into_iter()
-                .map(|chunk| {
-                    let mut sum: f32 = 0.0;
-                    let mut num = 0;
-                    for packet in chunk {
-                        num += 1;
-                        sum += packet;
-                    }
-                    sum / num as f32
-                })
-                .collect();
-            preview
-        }
-    }
-}
-
-impl Default for PreviewBuffer {
-    fn default() -> Self {
-        Self {
-            buf: vec![],
-            samples_per_packet: 2 << 2,
-            track: None,
-            avg_frames_per_packet: None,
-        }
-    }
 }
 
 pub struct Player {

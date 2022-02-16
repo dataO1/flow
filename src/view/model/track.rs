@@ -1,13 +1,10 @@
 use std::hash::Hash;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use itertools::Itertools;
-use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::CodecParameters;
 
 use crate::core::analyzer::PREVIEW_SAMPLES_PER_PACKET;
-use crate::core::player::PreviewBuffer;
 
 //------------------------------------------------------------------//
 //                              Track                               //

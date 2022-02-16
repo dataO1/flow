@@ -1,6 +1,6 @@
 use crate::core::analyzer;
 use crate::view::model;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use log::warn;
@@ -9,14 +9,12 @@ use symphonia::core::{
     audio::SampleBuffer,
     codecs::{CodecParameters, Decoder, DecoderOptions},
     errors::Error,
-    formats::{FormatOptions, FormatReader, Track},
+    formats::{FormatOptions, FormatReader},
     io::MediaSourceStream,
     meta::MetadataOptions,
     probe::Hint,
 };
 use tokio::{sync::mpsc::Sender, task::JoinHandle};
-
-use super::player::PreviewBuffer;
 
 //------------------------------------------------------------------//
 //                             Analyzer                             //
@@ -74,9 +72,9 @@ impl Analyzer {
     }
 
     async fn new(file_path: String, analyzer_event_out: Sender<analyzer::Event>) -> Self {
-        let mut reader = Analyzer::get_reader(file_path.clone());
+        let reader = Analyzer::get_reader(file_path.clone());
         let codec_params = reader.default_track().unwrap().clone().codec_params;
-        let decoder = Analyzer::get_decoder(&codec_params, &mut reader).unwrap();
+        let decoder = Analyzer::get_decoder(&codec_params).unwrap();
         let track = Arc::new(model::track::Track::new(file_path, codec_params));
         analyzer_event_out
             .send(Event::NewTrack(Arc::clone(&track)))
@@ -130,20 +128,17 @@ impl Analyzer {
         probed.format
     }
 
-    fn get_decoder(
-        codec_params: &CodecParameters,
-        reader: &mut Box<dyn FormatReader>,
-    ) -> Result<Box<dyn Decoder>, AnalyzerError> {
+    fn get_decoder(codec_params: &CodecParameters) -> Result<Box<dyn Decoder>, AnalyzerError> {
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: false,
             ..Default::default()
         };
-        let mut decoder = symphonia::default::get_codecs()
+        let decoder = symphonia::default::get_codecs()
             .make(&codec_params, &dec_opts)
             .unwrap();
-        let packet = reader.next_packet().unwrap();
+        // let packet = reader.next_packet().unwrap();
         // self.decoder = Some(decoder);
-        let decoded = decoder.decode(&packet).unwrap();
+        // let decoded = decoder.decode(&packet).unwrap();
         Ok(decoder)
     }
 
@@ -158,7 +153,7 @@ impl Analyzer {
 
     fn downsample_to_preview(&self, samples: &Vec<f32>) -> Vec<f32> {
         let chunk_size = samples.len() / PREVIEW_SAMPLES_PER_PACKET;
-        let mut preview_samples = samples
+        let preview_samples = samples
             .into_iter()
             .chunks(chunk_size)
             .into_iter()

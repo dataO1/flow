@@ -1,12 +1,10 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::Color;
 use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Block, Borders, Widget};
 
-use crate::core::player::PreviewBuffer;
 use crate::view::model::track::Track;
 
 pub struct PreviewWidget<'a> {

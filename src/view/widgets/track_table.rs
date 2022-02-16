@@ -1,5 +1,5 @@
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use indexmap::IndexSet;
 use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, Row, Table, Widget}};

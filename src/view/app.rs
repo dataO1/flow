@@ -8,7 +8,7 @@ use crossterm::{
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
 
-use std::{fs, io, path::Path, sync::Arc, time::Duration};
+use std::{fs, io, path::Path, time::Duration};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -21,12 +21,9 @@ use tui::{
 
 use crate::core::player::{Message, Player};
 
-use super::{
-    model::track::Track,
-    widgets::{
-        preview::{PreviewType, PreviewWidget},
-        track_table::{TrackList, TrackTableWidget},
-    },
+use super::widgets::{
+    preview::{PreviewType, PreviewWidget},
+    track_table::{TrackList, TrackTableWidget},
 };
 
 #[derive(Clone, Debug)]
