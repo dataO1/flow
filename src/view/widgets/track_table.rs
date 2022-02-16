@@ -34,7 +34,8 @@ impl<'a> TrackTableWidget<'a> {
 
     fn get_header(&self) -> Row {
         // || filename || analyzed_percentage
-        Row::new(vec!["File Name", "Analysis"]).bottom_margin(0).style(Style::default().add_modifier(Modifier::BOLD))
+        let style = Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        Row::new(vec!["File Name", "Analysis"]).bottom_margin(0).style(style).bottom_margin(1)
     }
 }
 impl<'a> Widget for TrackTableWidget<'a> {
