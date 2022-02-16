@@ -1,11 +1,10 @@
 use std::hash::Hash;
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
-use std::time::Duration;
+use std::sync::RwLock;
 
 use symphonia::core::codecs::CodecParameters;
 
-use crate::core::analyzer::{PreviewSample, PREVIEW_SAMPLES_PER_PACKET};
+use crate::core::analyzer::{Analyzer, PreviewSample, PREVIEW_SAMPLES_PER_PACKET};
 
 //------------------------------------------------------------------//
 //                              Track                               //
@@ -20,7 +19,7 @@ pub struct Track {
     /// the file name
     pub file_name: String,
     /// codec parameters
-    codec_params: CodecParameters,
+    pub codec_params: CodecParameters,
     /// downsampled version of decoded frames for preview
     preview_buffer: RwLock<Vec<PreviewSample>>,
     /// number of samples per packet
@@ -53,10 +52,8 @@ impl Track {
         let current_estimated_samples_per_packet =
             self.estimated_samples_per_packet.read().unwrap().clone();
         if let None = current_estimated_samples_per_packet {
-            *self.estimated_samples_per_packet.write().unwrap() =
-                // devide the given estimated_samples_per_packet by number of challenge, since the
-                // estimated_samples_per_packet is in interlaeved format
-                Some(estimated_samples_per_packet / self.codec_params.channels.unwrap().count());
+            let res = Some(estimated_samples_per_packet);
+            *self.estimated_samples_per_packet.write().unwrap() = res;
         }
     }
 
@@ -66,8 +63,6 @@ impl Track {
         // if self.avg_frames_per_packet == None {
         //     self.avg_frames_per_packet = Some((samples.len() / 2) as u64);
         // }
-        // since the samples in the packets are interlaeved (2 channels), we have to adjust the
-        // chunk size
         self.preview_buffer.write().unwrap().append(preview_samples);
     }
 
@@ -78,19 +73,14 @@ impl Track {
             Some(100)
         } else {
             let mut res = None;
-            let estimated_samples_per_packet =
-                self.estimated_samples_per_packet.read().unwrap().clone();
             // if codec params contains max_frames_per_packet use that
             // else if estimated_samples_per_packet is set use that
             // else default to 0
-            let max_frames_per_packet = self
-                .codec_params
-                .max_frames_per_packet
-                .or(estimated_samples_per_packet.map(|x| x as u64));
+            let frames_per_packet = self.get_frames_per_packet();
             // when max_frames_per_packet and number of total frames in the track are known we can
             // compute the progress
             if let (Some(max_frames_per_packet), Some(n_frames)) =
-                (max_frames_per_packet, self.codec_params.n_frames)
+                (frames_per_packet, self.codec_params.n_frames)
             {
                 let n_analyzed_packets =
                     self.preview_buffer.read().unwrap().len() / PREVIEW_SAMPLES_PER_PACKET;
@@ -103,24 +93,45 @@ impl Track {
         }
     }
 
+    /// computes the number of frame per packet for this track
+    fn get_frames_per_packet(&self) -> Option<u64> {
+        let estimated_samples_per_packet =
+            self.estimated_samples_per_packet.read().unwrap().clone();
+        let frames_per_packet = self
+            .codec_params
+            .max_frames_per_packet
+            .or(estimated_samples_per_packet.map(|x| x as u64));
+        frames_per_packet
+    }
+
+    /// computes the number of packets for this track
+    pub fn n_packets(&self) -> Option<u64> {
+        let n_frames = self.codec_params.n_frames.unwrap();
+        let frames_per_packet = self.get_frames_per_packet();
+        let n_packets = frames_per_packet.map(|fpp| n_frames / fpp);
+        n_packets
+    }
+
     /// returns the preview samples for a given player position and target screen size
     /// the playhead position shifts the player position by [-target_size/2, target_size/2] relative in the buffer
-    pub fn preview(
+    pub fn live_preview(
         &self,
         target_size: usize,
         player_position: usize,
         playhead_position: usize,
     ) -> Vec<PreviewSample> {
-        let mut preview_buffer = self.preview_buffer.read().unwrap().to_owned();
+        let preview_buffer = self.preview_buffer.read().unwrap().to_owned();
         // println!("{}", preview_buffer.len());
-        let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET;
+        let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET
+            / self.codec_params.channels.unwrap().count();
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size / 2) as isize;
         if diff >= 0 {
             // if yes return buffer content
-            let l = player_pos as f32 - (target_size as f32 / 2.0);
-            let r = player_pos as f32 + (target_size as f32 / 2.0);
-            preview_buffer[l as usize..r as usize].to_owned()
+            let l = (player_pos as f32 - (target_size as f32 / 2.0)) as usize;
+            let r = (player_pos as f32 + (target_size as f32 / 2.0)) as usize;
+            let r = std::cmp::min(r, preview_buffer.len());
+            preview_buffer[l..r].to_owned()
         } else {
             let diff = diff.abs() as usize;
             let mut padding = vec![0.0 as f32; diff];
@@ -129,6 +140,26 @@ impl Track {
             };
             padding.to_owned()
         }
+    }
+
+    /// computes a downsampled version of the full track that fits in a buffer of target_size
+    pub fn preview(&self, target_size: usize) -> Vec<PreviewSample> {
+        let n_frames = self.codec_params.n_frames.unwrap();
+        let frames_per_packet = self.get_frames_per_packet();
+        if let Some(frames_per_packet) = frames_per_packet {
+            let preview_buffer = self.preview_buffer.read().unwrap().clone();
+            let n_analyzed_packets = preview_buffer.len() / PREVIEW_SAMPLES_PER_PACKET;
+            let n_analyzed_frames = n_analyzed_packets as u64 * frames_per_packet;
+            let progress = n_analyzed_frames as f64 / n_frames as f64 * 2.0;
+            let target_size = (target_size as f64 * progress).floor() as usize;
+            if target_size > 0 {
+                let num_channles = self.codec_params.channels.unwrap().count();
+                let downsampled =
+                    Analyzer::downsample_to_preview(&preview_buffer, num_channles, target_size);
+                return downsampled;
+            }
+        }
+        vec![0.0]
     }
 }
 

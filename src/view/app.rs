@@ -27,7 +27,8 @@ use tui::{
 use crate::core::player::{Message, Player};
 
 use super::widgets::{
-    preview::{PreviewType, PreviewWidget},
+    live_preview::LivePreviewWidget,
+    preview::PreviewWidget,
     track_table::{TrackList, TrackTableWidget},
 };
 
@@ -213,14 +214,11 @@ impl App {
             )
             .split(f.size());
         if let Some(track) = self.tracks.get_loaded() {
-            let live_preview = PreviewWidget::new(
-                PreviewType::LivePreview,
-                &track,
-                *self.player_position.lock().unwrap(),
-            );
-            // let preview = PreviewWidget::new(PreviewType::Preview, &track, self.player_position);
+            let live_preview =
+                LivePreviewWidget::new(&track, *self.player_position.lock().unwrap());
+            let preview = PreviewWidget::new(&track, *self.player_position.lock().unwrap());
 
-            // f.render_widget(preview, window[1]);
+            f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
         }
 

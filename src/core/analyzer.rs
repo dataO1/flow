@@ -22,9 +22,11 @@ use tokio::{sync::mpsc::Sender, task::JoinHandle};
 /// Max number of preview samples to cache before sending to
 /// the shared preview buffer of the track
 const PREVIEW_CACHE_MAX: usize = 1000;
-/// determines the number of samples in the preview buffer per packet of the original source
-pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 4;
+/// Determines the number of samples in the preview buffer per packet of the original source.
+/// Should be a multiple of number of channels
+pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 2;
 
+/// This is a mono-summed, downsampled version of a number of decoded samples
 pub type PreviewSample = f32;
 
 #[derive(Debug)]
@@ -150,13 +152,20 @@ impl Analyzer {
     }
 
     fn analyze_samples(&mut self, sample_buffer: SampleBuffer<f32>) {
+        // this is the interleaved sample buffer, which means for each point in time there are n
+        // samples where n is the number of channels in the track (for stereo that's 2)
         let samples = sample_buffer.samples();
         self.track.set_estimated_samples_per_packet(samples.len());
         // cache decoded frames
         self.sample_buf.push(samples.to_owned());
+        let num_channels = self.track.codec_params.channels.unwrap().count();
         // cache downsampled frames
         self.preview_buf
-            .append(&mut self.downsample_to_preview(samples));
+            .append(&mut Analyzer::downsample_to_preview(
+                samples,
+                num_channels,
+                PREVIEW_SAMPLES_PER_PACKET,
+            ));
         // as soon as we have enough cached preview samples send them to the shared buffer of
         // the track
         if self.preview_buf.len() >= PREVIEW_CACHE_MAX {
@@ -165,9 +174,22 @@ impl Analyzer {
         }
     }
 
-    fn downsample_to_preview(&self, samples: &[f32]) -> Vec<PreviewSample> {
-        let chunk_size = samples.len() / PREVIEW_SAMPLES_PER_PACKET;
+    /// downsample a given buffer of interleaved samples to a summed preview version
+    pub fn downsample_to_preview(
+        samples: &[f32],
+        num_channels: usize,
+        target_size: usize,
+    ) -> Vec<PreviewSample> {
+        let chunk_size = samples.len() / target_size;
         let preview_samples = samples
+            // sum the channels into on sample
+            .into_iter()
+            .chunks(num_channels)
+            .into_iter()
+            .map(|n_channels_chunk| {
+                (n_channels_chunk.into_iter().sum::<f32>() / num_channels as f32)
+            })
+            // downsample to preview
             .into_iter()
             .chunks(chunk_size)
             .into_iter()
@@ -182,6 +204,7 @@ impl Analyzer {
                 // assert!(mean > 0.0);
                 mean
             })
+            .take(target_size)
             .collect();
         preview_samples
     }

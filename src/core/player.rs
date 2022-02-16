@@ -36,11 +36,7 @@ pub enum Message {
     GetPreview(usize),
 }
 
-pub enum Event {
-    // Preview(Box<usizeBuffer>),
-// Played x messages
-// PlayedPackages(usize),
-}
+pub enum Event {}
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum PlayerState {
@@ -165,28 +161,30 @@ impl Player {
         };
     }
 
-    fn play(&mut self) {
+    fn play(&mut self) -> Result<(), symphonia::core::errors::Error> {
         *self.position.lock().unwrap() += 1;
         match (&mut self.reader, &mut self.decoder, &mut self.output) {
             (Some(reader), Some(decoder), Some(out)) => {
-                let packet = reader.next_packet().unwrap();
+                let packet = reader.next_packet()?;
                 let decoded = decoder.decode(&packet).unwrap();
                 let mut raw_sample_buf =
                     RawSampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
                 raw_sample_buf.copy_interleaved_ref(decoded);
                 match out.write(raw_sample_buf.as_bytes()) {
                     Ok(_) => {
+                        Ok(())
                         // successfully wrote buffer
                         // println!("success");
                     }
                     Err(err) => {
+                        panic!("Failed to write to output device");
                         // PAErr
                         // println!("Error: {}", err);
                     }
                 }
             }
             _ => {
-                println!("Not everything was initialized")
+                panic!("Not everything was initialized");
             }
         }
     }
