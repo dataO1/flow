@@ -1,10 +1,15 @@
 use crate::core::analyzer;
 use crate::view::model;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    thread::{spawn, JoinHandle},
+    time::Duration,
+};
 
 use itertools::Itertools;
 use log::warn;
 
+use std::sync::mpsc::Sender;
 use symphonia::core::{
     audio::SampleBuffer,
     codecs::{CodecParameters, Decoder, DecoderOptions},
@@ -14,7 +19,6 @@ use symphonia::core::{
     meta::MetadataOptions,
     probe::Hint,
 };
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
 
 //------------------------------------------------------------------//
 //                             Analyzer                             //
@@ -59,8 +63,8 @@ pub struct Analyzer {
 
 impl Analyzer {
     pub fn spawn(file_path: String, analyzer_event_out: Sender<analyzer::Event>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut analyzer = Analyzer::new(file_path.clone(), analyzer_event_out).await;
+        spawn(move || {
+            let mut analyzer = Analyzer::new(file_path.clone(), analyzer_event_out);
             // messages
             loop {
                 match analyzer.decode() {
@@ -73,7 +77,7 @@ impl Analyzer {
                         analyzer
                             .analyzer_event_out
                             .send(analyzer::Event::DoneAnalyzing(file_path))
-                            .await;
+                            .unwrap();
                         break;
                     }
                 }
@@ -81,14 +85,14 @@ impl Analyzer {
         })
     }
 
-    async fn new(file_path: String, analyzer_event_out: Sender<analyzer::Event>) -> Self {
+    fn new(file_path: String, analyzer_event_out: Sender<analyzer::Event>) -> Self {
         let reader = Analyzer::get_reader(file_path.clone());
         let codec_params = reader.default_track().unwrap().clone().codec_params;
         let decoder = Analyzer::get_decoder(&codec_params).unwrap();
         let track = Arc::new(model::track::Track::new(file_path, codec_params));
         analyzer_event_out
             .send(Event::NewTrack(Arc::clone(&track)))
-            .await;
+            .unwrap();
         Self {
             reader,
             decoder,

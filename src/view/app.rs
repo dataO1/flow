@@ -14,7 +14,10 @@ use std::{
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use std::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::Instant,
+};
 use tui::{
     backend::{Backend, CrosstermBackend},
     widgets::{Block, Borders, Paragraph},
@@ -88,9 +91,9 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         // create message passing channels
-        let (player_events_out, mut player_events_in) = channel::<player::Event>(10);
-        let (player_messages_out, player_messages_in) = channel::<player::Message>(10);
-        let (analyzer_event_out, mut analyzer_event_in) = channel::<analyzer::Event>(10);
+        let (player_events_out, mut player_events_in) = channel::<player::Event>();
+        let (player_messages_out, player_messages_in) = channel::<player::Message>();
+        let (analyzer_event_out, mut analyzer_event_in) = channel::<analyzer::Event>();
         // spawn player
         let player_handle = Player::spawn(
             Arc::clone(&self.player_position),
@@ -105,6 +108,7 @@ impl App {
         }
         loop {
             terminal.draw(|f| self.render(f))?;
+            // only take key events every 250 milliseconds
             self.update(
                 player_messages_out.clone(),
                 &mut player_events_in,
@@ -139,7 +143,7 @@ impl App {
                         }
                         // Toggle Play
                         KeyCode::Char(' ') => {
-                            player_messages_out.send(Message::TogglePlay).await;
+                            player_messages_out.send(Message::TogglePlay).unwrap();
                             self.latest_event = String::from("TogglePlay");
                         }
                         // Load Track
@@ -151,7 +155,7 @@ impl App {
                             if let Some(track) = focused {
                                 player_messages_out
                                     .send(Message::Load(track.file_path.clone()))
-                                    .await;
+                                    .unwrap();
                                 self.latest_event =
                                     String::from(format!("Loaded {}", track.file_path));
                             }

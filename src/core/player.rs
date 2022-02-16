@@ -1,10 +1,12 @@
 use std::sync::{Arc, Mutex};
+use std::thread::{spawn, JoinHandle};
 
 use crate::core::player;
 use libpulse_binding as pulse;
 use libpulse_simple_binding as psimple;
 
 use log::warn;
+use std::sync::mpsc::{Receiver, Sender};
 use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
 use symphonia::core::codecs::Decoder;
@@ -14,8 +16,6 @@ use symphonia::core::formats::FormatReader;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::task::JoinHandle;
 
 pub enum Message {
     /// Load a new file
@@ -75,9 +75,9 @@ impl Player {
     ) -> JoinHandle<()> {
         // The async channel for Events from the reader
         // Start the command handler thread
-        tokio::spawn(async move {
+        spawn(move || {
             let mut player = Player::new(player_position);
-            player.event_loop(player_message_in, player_event_out).await
+            player.event_loop(player_message_in, player_event_out)
         })
     }
 
@@ -93,7 +93,7 @@ impl Player {
         }
     }
 
-    async fn event_loop(
+    fn event_loop(
         &mut self,
         mut player_message_in: Receiver<Message>,
         player_event_out: Sender<player::Event>,
