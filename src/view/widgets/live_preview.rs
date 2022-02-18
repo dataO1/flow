@@ -2,9 +2,13 @@ use std::collections::VecDeque;
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::Color;
-use tui::widgets::canvas::{Canvas, Line};
-use tui::widgets::{Block, Borders, Widget};
+use tui::widgets::canvas::Context;
+use tui::widgets::{
+    canvas::{Canvas, Line},
+    Block, Borders, Widget,
+};
 
+use crate::core::analyzer::PreviewSample;
 use crate::view::model::track::Track;
 
 pub struct LivePreviewWidget<'a> {
@@ -12,9 +16,51 @@ pub struct LivePreviewWidget<'a> {
     player_pos: usize,
 }
 
+pub enum WaveFormLayer {
+    Lows,
+    Mids,
+    Highs,
+}
+
 impl<'a> LivePreviewWidget<'a> {
     pub fn new(track: &'a Track, player_pos: usize) -> Self {
         Self { player_pos, track }
+    }
+
+    pub fn draw_waveform(
+        &self,
+        ctx: &mut Context,
+        layer: WaveFormLayer,
+        target_size: usize,
+        y_max: usize,
+    ) {
+        for (i, sample) in self
+            .track
+            .live_preview(target_size, self.player_pos, target_size / 2)
+            .into_iter()
+            .take(self.player_pos)
+            .enumerate()
+        {
+            let x = (-((target_size / 2) as i32) + i as i32) as f64;
+            let y = match layer {
+                WaveFormLayer::Lows => sample.lows * 2.,
+                WaveFormLayer::Mids => sample.mids * 80.,
+                WaveFormLayer::Highs => sample.highs * 200.,
+            };
+            let y = (y * (y_max as f32)) as f64;
+            let color = match layer {
+                WaveFormLayer::Lows => Color::Red,
+                WaveFormLayer::Mids => Color::Green,
+                WaveFormLayer::Highs => Color::White,
+            };
+            ctx.draw(&Line {
+                x1: x,
+                x2: x,
+                y1: y,
+                y2: -y,
+                color,
+            });
+        }
     }
 }
 
@@ -25,10 +71,11 @@ impl<'a> Widget for LivePreviewWidget<'a> {
         let x_max = area.width as usize;
         let y_max = area.height as usize;
         let playhead_offset_from_center = 0;
+        let target_size = x_max * 2;
         // println!("x:({},{}), y:({}{})", x_min, x_max, y_min, y_max);
         // println!("preview_buf_len: {}", preview_buf.len());
         let canvas = Canvas::default()
-            .block(Block::default().borders(Borders::BOTTOM))
+            .block(Block::default())
             .x_bounds([-(x_max as f64), x_max as f64])
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
@@ -40,38 +87,12 @@ impl<'a> Widget for LivePreviewWidget<'a> {
                     y2: y_max as f64,
                     color: Color::Red,
                 });
-                ctx.layer();
-                // for i in (1..(area.width as usize)) {
-                for (i, sample) in self
-                    .track
-                    .live_preview(x_max * 2, self.player_pos, playhead_offset_from_center)
-                    .to_owned()
-                    .into_iter()
-                    .take(x_max * 2 as usize)
-                    .enumerate()
-                {
-                    // determine x
-                    // let x = ((i * chunk_size) as f32) - (preview_buf_len as f32 / 2.0);
-                    // fit sample (a value between 0 and 1) into area height
-                    let x = (-(x_max as i16) + i as i16) as f64;
-                    let y = (sample * (y_max as f32)) as f64;
-                    // draw line
-                    ctx.draw(&Line {
-                        x1: x,
-                        x2: x,
-                        y1: y,
-                        y2: -y,
-                        color: Color::Gray,
-                    });
-                    // draw inner line
-                    ctx.draw(&Line {
-                        x1: x,
-                        x2: x,
-                        y1: y * 0.4,
-                        y2: -y * 0.4,
-                        color: Color::DarkGray,
-                    });
-                }
+                // ctx.layer();
+                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
+                // ctx.layer();
+                self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
+                // ctx.layer();
+                self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
             });
         canvas.render(area, buf);
     }

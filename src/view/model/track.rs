@@ -101,7 +101,7 @@ impl Track {
             .codec_params
             .max_frames_per_packet
             .or(estimated_samples_per_packet.map(|x| x as u64));
-        frames_per_packet
+        frames_per_packet.map(|x| x / 2)
     }
 
     /// computes the number of packets for this track
@@ -122,8 +122,7 @@ impl Track {
     ) -> Vec<PreviewSample> {
         let preview_buffer = self.preview_buffer.read().unwrap().to_owned();
         // println!("{}", preview_buffer.len());
-        let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET
-            / self.codec_params.channels.unwrap().count();
+        let player_pos = player_position * PREVIEW_SAMPLES_PER_PACKET;
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size / 2) as isize;
         if diff >= 0 {
@@ -134,9 +133,16 @@ impl Track {
             preview_buffer[l..r].to_owned()
         } else {
             let diff = diff.abs() as usize;
-            let mut padding = vec![0.0 as f32; diff];
+            let mut padding: Vec<PreviewSample> = vec![0.0 as f32; diff]
+                .into_iter()
+                .map(|s| PreviewSample {
+                    mids: s,
+                    lows: s,
+                    highs: s,
+                })
+                .collect();
             if preview_buffer.len() > 0 {
-                padding.extend_from_slice(&preview_buffer[0..target_size - diff]);
+                padding.extend(preview_buffer[0..target_size - diff].to_vec());
             };
             padding.to_owned()
         }
@@ -154,12 +160,13 @@ impl Track {
             let target_size = (target_size as f64 * progress).floor() as usize;
             if target_size > 0 {
                 let num_channles = self.codec_params.channels.unwrap().count();
-                let downsampled =
-                    Analyzer::downsample_to_preview(&preview_buffer, num_channles, target_size);
-                return downsampled;
+                // let preview_buffer =
+                //     Analyzer::downsample_to_preview(&preview_buffer, num_channles, target_size);
+                return preview_buffer;
             }
         }
-        vec![0.0]
+        // vec![0.0]
+        (*self.preview_buffer.read().unwrap()).to_owned()
     }
 }
 

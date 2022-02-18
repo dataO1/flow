@@ -30,7 +30,7 @@ impl<'a> Widget for PreviewWidget<'a> {
         let playhead_position = (self.player_position as f64 / n_packets as f64) * (x_max as f64);
         let playhead_position = (playhead_position as i64) - (x_max as i64);
         let canvas = Canvas::default()
-            .block(Block::default().borders(Borders::BOTTOM))
+            .block(Block::default())
             .x_bounds([-(x_max as f64), x_max as f64])
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
@@ -45,8 +45,8 @@ impl<'a> Widget for PreviewWidget<'a> {
                 {
                     //
                     let x = (-(x_max as i16) + i as i16) as f64;
-                    let y = (sample * (y_max as f32)) as f64;
-                    let y = y * 10.;
+                    // let y = (sample * (y_max as f32)) as f64;
+                    let y = 1. * 20.;
                     // // clip the signal if too hight
                     // let y = if y > (y_max as f64) { y_max as f64 } else { y };
                     ctx.draw(&Line {

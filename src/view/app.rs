@@ -208,9 +208,9 @@ impl App {
                     // split for the live preview
                     Constraint::Percentage(20),
                     // split for the waveform overview
-                    Constraint::Percentage(10),
+                    Constraint::Percentage(5),
                     // split for the main body
-                    Constraint::Percentage(68),
+                    Constraint::Percentage(73),
                     // split for the footer
                     Constraint::Percentage(2),
                 ]

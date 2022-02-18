@@ -1,9 +1,13 @@
 use crate::core::analyzer;
 use crate::view::model;
+use samplerate::{ConverterType, Samplerate};
 use std::{
     sync::Arc,
     thread::{spawn, JoinHandle},
     time::Duration,
+};
+use synthrs::filter::{
+    bandpass_filter, convolve, cutoff_from_frequency, highpass_filter, lowpass_filter,
 };
 
 use itertools::Itertools;
@@ -25,13 +29,18 @@ use symphonia::core::{
 //------------------------------------------------------------------//
 /// Max number of preview samples to cache before sending to
 /// the shared preview buffer of the track
-const PREVIEW_CACHE_MAX: usize = 2000;
+const PREVIEW_CACHE_MAX: usize = 1000;
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
-pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 2;
+pub const PREVIEW_SAMPLES_PER_PACKET: usize = 6;
 
 /// This is a mono-summed, downsampled version of a number of decoded samples
-pub type PreviewSample = f32;
+#[derive(Copy, Clone, Debug)]
+pub struct PreviewSample {
+    pub lows: f32,
+    pub mids: f32,
+    pub highs: f32,
+}
 
 #[derive(Debug)]
 pub enum AnalyzerError {
@@ -56,9 +65,10 @@ pub struct Analyzer {
     /// Decoder
     decoder: Box<dyn Decoder>,
     /// Local Cache for analyzed samples
-    sample_buf: Vec<Vec<f32>>,
+    sample_buf: Vec<f32>,
     /// Local Cache for downsampled samples
     preview_buf: Vec<f32>,
+    beats: Vec<f32>,
 }
 
 impl Analyzer {
@@ -68,8 +78,8 @@ impl Analyzer {
             // messages
             loop {
                 match analyzer.decode() {
-                    Ok(samples) => {
-                        analyzer.analyze_samples(samples);
+                    Ok(packet) => {
+                        analyzer.analyze_packet(packet);
                     }
                     Err(_) => {
                         // Error decoding
@@ -78,6 +88,8 @@ impl Analyzer {
                             .analyzer_event_out
                             .send(analyzer::Event::DoneAnalyzing(file_path))
                             .unwrap();
+                        println!("{:#?}", analyzer.beats.len());
+                        analyzer.analyze_bpm();
                         break;
                     }
                 }
@@ -100,11 +112,11 @@ impl Analyzer {
             preview_buf: vec![],
             track,
             analyzer_event_out,
+            beats: vec![],
         }
     }
 
-    // creates a new @FormatReader
-
+    /// returns a sample buffer, that contains one packet of samples in decoded, interleaved form
     fn decode(&mut self) -> Result<SampleBuffer<f32>, Error> {
         let packet = self.reader.next_packet()?;
         match self.decoder.decode(&packet) {
@@ -131,6 +143,7 @@ impl Analyzer {
         }
     }
 
+    /// creates reader from a given path
     fn get_reader(path: String) -> Box<dyn FormatReader> {
         let src = std::fs::File::open(path).expect("failed to open media");
         let mss = MediaSourceStream::new(Box::new(src), Default::default());
@@ -144,6 +157,7 @@ impl Analyzer {
         probed.format
     }
 
+    /// creates decoder from codec parameters
     fn get_decoder(codec_params: &CodecParameters) -> Result<Box<dyn Decoder>, AnalyzerError> {
         let dec_opts: DecoderOptions = DecoderOptions {
             verify: false,
@@ -155,44 +169,117 @@ impl Analyzer {
         Ok(decoder)
     }
 
-    fn analyze_samples(&mut self, sample_buffer: SampleBuffer<f32>) {
+    /// analyze a decoded packet
+    fn analyze_packet(&mut self, sample_buffer: SampleBuffer<f32>) {
         // this is the interleaved sample buffer, which means for each point in time there are n
         // samples where n is the number of channels in the track (for stereo that's 2)
         let samples = sample_buffer.samples();
         self.track.set_estimated_samples_per_packet(samples.len());
         // cache decoded frames
-        self.sample_buf.push(samples.to_owned());
+        self.sample_buf.extend_from_slice(samples);
         let num_channels = self.track.codec_params.channels.unwrap().count();
-        // cache downsampled frames
-        self.preview_buf
-            .append(&mut Analyzer::downsample_to_preview(
-                samples,
-                num_channels,
-                PREVIEW_SAMPLES_PER_PACKET,
-            ));
+        let converter =
+            Samplerate::new(ConverterType::SincFastest, 44100, 441, num_channels).unwrap();
+        let samples = converter.process_last(samples).unwrap();
+        let mut samples =
+            Analyzer::downsample_to_preview(&samples, num_channels, PREVIEW_SAMPLES_PER_PACKET);
+        assert![samples.len() == PREVIEW_SAMPLES_PER_PACKET];
+        self.preview_buf.append(&mut samples);
         // as soon as we have enough cached preview samples send them to the shared buffer of
         // the track
         if self.preview_buf.len() >= PREVIEW_CACHE_MAX {
-            self.track.append_preview_samples(&mut self.preview_buf);
+            // convert cached downsampled buffer to preview samples
+            let mut preview_samples = self.samples_2_preview_samples(&self.preview_buf);
+            self.track.append_preview_samples(&mut preview_samples);
             self.preview_buf = vec![];
         }
     }
 
+    fn analyze_bpm(&mut self) {
+        // analyze bpm
+        let hop_s = 512;
+        let buf_s = 1024;
+        let mut tempo = std::panic::catch_unwind(|| {
+            aubio::Tempo::new(
+                aubio::OnsetMode::Hfc,
+                buf_s,
+                hop_s,
+                self.track.codec_params.sample_rate.unwrap(),
+            )
+            .unwrap()
+        });
+        match tempo {
+            Ok(mut tempo) => {
+                self.sample_buf
+                    .to_vec()
+                    .into_iter()
+                    .chunks(buf_s)
+                    .into_iter()
+                    .map(|chunk| {
+                        let chunk: Vec<f32> = chunk.into_iter().collect();
+                        match tempo.do_result(chunk) {
+                            Ok(_) => {}
+                            Err(_) => {}
+                        };
+                    });
+                let t = tempo.get_bpm();
+                println!("{}", t);
+            }
+            Err(err) => {
+                println!("{:#?}", err);
+            }
+        };
+    }
+
+    /// convert a buffer of samples into a buffer of preview samples of same lenght
+    fn samples_2_preview_samples(&self, samples: &Vec<f32>) -> Vec<PreviewSample> {
+        let samples = samples.into_iter().map(|s| *s as f64).collect_vec();
+        let sample_rate = self.track.codec_params.sample_rate.unwrap() as usize;
+        let low_low_crossover = cutoff_from_frequency(20., sample_rate);
+        let high_low_crossover = cutoff_from_frequency(100., sample_rate);
+        let low_mid_crossover = cutoff_from_frequency(100., sample_rate);
+        let high_mid_crossover = cutoff_from_frequency(1000., sample_rate);
+        let low_high_crossover = cutoff_from_frequency(5000., sample_rate);
+        let high_high_crossover = cutoff_from_frequency(8000., sample_rate);
+        let low_band_filter = bandpass_filter(low_low_crossover, high_low_crossover, 0.1);
+        let lows = convolve(&low_band_filter, &samples[..]);
+        let high_band_filter = bandpass_filter(low_high_crossover, high_high_crossover, 0.1);
+        let highs = convolve(&high_band_filter, &samples[..]);
+        let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.1);
+        let mids = convolve(&mid_band_filter, &samples[..]);
+        let zipped = highs
+            .into_iter()
+            .zip(lows.into_iter())
+            .zip(mids.into_iter())
+            .take(samples.len());
+        let preview_samples = zipped
+            .map(|x| {
+                let mids = x.1 as f32;
+                let lows = x.0 .0 as f32;
+                let highs = x.0 .1 as f32;
+                let preview_sample = PreviewSample { lows, mids, highs };
+                // println!("{:#?}", preview_sample);
+                preview_sample
+            })
+            .collect_vec();
+        assert![preview_samples.len() == samples.len()];
+        preview_samples
+    }
     /// downsample a given buffer of interleaved samples to a summed preview version
     pub fn downsample_to_preview(
         samples: &[f32],
         num_channels: usize,
         target_size: usize,
-    ) -> Vec<PreviewSample> {
+    ) -> Vec<f32> {
         let chunk_size = samples.len() / target_size;
         let preview_samples = samples
             // sum the channels into on sample
-            .into_iter()
-            .chunks(num_channels)
-            .into_iter()
-            .map(|n_channels_chunk| {
-                (n_channels_chunk.into_iter().sum::<f32>() / num_channels as f32)
-            })
+            // .into_iter()
+            // .chunks(num_channels)
+            // .into_iter()
+            // .map(|n_channels_chunk| {
+            //     (n_channels_chunk.into_iter().sum::<f32>() / num_channels as f32)
+            // })
             // downsample to preview
             .into_iter()
             .chunks(chunk_size)

@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 
 [dependencies]
-aubio = {version = "0.2.1", features = ["builtin"]}
+aubio = { version = "0.2.1", features = ["builtin"] }
 symphonia = { version = "0.5.0", features = ["mp3"] }
 log = { version = "0.4.14", features = ["release_max_level_info"] }
 crossterm = "0.23.0"
@@ -16,6 +16,8 @@ rand = "0.8.4"
 itertools = "0.10.3"
 indexmap = "1.8.0"
 hash = "0.3.0"
+samplerate = "0.2.4"
+synthrs = {git = "https://github.com/gyng/synthrs"}
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
