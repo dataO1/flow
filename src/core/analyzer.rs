@@ -32,7 +32,7 @@ use symphonia::core::{
 const PREVIEW_CACHE_MAX: usize = 1000;
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
-pub const PREVIEW_SAMPLES_PER_PACKET: usize = 6;
+pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 3;
 
 /// This is a mono-summed, downsampled version of a number of decoded samples
 #[derive(Copy, Clone, Debug)]
@@ -180,9 +180,9 @@ impl Analyzer {
         let num_channels = self.track.codec_params.channels.unwrap().count();
         let converter =
             Samplerate::new(ConverterType::SincFastest, 44100, 441, num_channels).unwrap();
-        let samples = converter.process_last(samples).unwrap();
+        // let samples = converter.process_last(samples).unwrap();
         let mut samples =
-            Analyzer::downsample_to_preview(&samples, num_channels, PREVIEW_SAMPLES_PER_PACKET);
+            Analyzer::downsample_to_fixed_size(&samples, num_channels, PREVIEW_SAMPLES_PER_PACKET);
         assert![samples.len() == PREVIEW_SAMPLES_PER_PACKET];
         self.preview_buf.append(&mut samples);
         // as soon as we have enough cached preview samples send them to the shared buffer of
@@ -237,15 +237,15 @@ impl Analyzer {
         let sample_rate = self.track.codec_params.sample_rate.unwrap() as usize;
         let low_low_crossover = cutoff_from_frequency(20., sample_rate);
         let high_low_crossover = cutoff_from_frequency(100., sample_rate);
-        let low_mid_crossover = cutoff_from_frequency(100., sample_rate);
-        let high_mid_crossover = cutoff_from_frequency(1000., sample_rate);
-        let low_high_crossover = cutoff_from_frequency(5000., sample_rate);
-        let high_high_crossover = cutoff_from_frequency(8000., sample_rate);
-        let low_band_filter = bandpass_filter(low_low_crossover, high_low_crossover, 0.1);
+        let low_mid_crossover = cutoff_from_frequency(500., sample_rate);
+        let high_mid_crossover = cutoff_from_frequency(3000., sample_rate);
+        let low_high_crossover = cutoff_from_frequency(10000., sample_rate);
+        let high_high_crossover = cutoff_from_frequency(18000., sample_rate);
+        let low_band_filter = lowpass_filter(high_low_crossover, 100.);
         let lows = convolve(&low_band_filter, &samples[..]);
-        let high_band_filter = bandpass_filter(low_high_crossover, high_high_crossover, 0.1);
+        let high_band_filter = highpass_filter(low_high_crossover, 0.08);
         let highs = convolve(&high_band_filter, &samples[..]);
-        let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.1);
+        let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.08);
         let mids = convolve(&mid_band_filter, &samples[..]);
         let zipped = highs
             .into_iter()
@@ -265,13 +265,19 @@ impl Analyzer {
         assert![preview_samples.len() == samples.len()];
         preview_samples
     }
+
+    // pub fn smooth_samples(samples: &Vec<f32>, sample_rate: usize) -> Vec<f32> {
+    //     let low_pass = lowpass_filter(cutoff_from_frequency(20., sample_rate), 0.01);
+    // }
+
     /// downsample a given buffer of interleaved samples to a summed preview version
-    pub fn downsample_to_preview(
+    pub fn downsample_to_fixed_size(
         samples: &[f32],
         num_channels: usize,
         target_size: usize,
     ) -> Vec<f32> {
         let chunk_size = samples.len() / target_size;
+
         let preview_samples = samples
             // sum the channels into on sample
             // .into_iter()
