@@ -29,7 +29,7 @@ use symphonia::core::{
 //------------------------------------------------------------------//
 /// Max number of preview samples to cache before sending to
 /// the shared preview buffer of the track
-const PREVIEW_CACHE_MAX: usize = 1000;
+const PREVIEW_CACHE_MAX: usize = 5000;
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
 pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 3;
@@ -183,13 +183,14 @@ impl Analyzer {
         // let samples = converter.process_last(samples).unwrap();
         let mut samples =
             Analyzer::downsample_to_fixed_size(&samples, num_channels, PREVIEW_SAMPLES_PER_PACKET);
-        assert![samples.len() == PREVIEW_SAMPLES_PER_PACKET];
         self.preview_buf.append(&mut samples);
         // as soon as we have enough cached preview samples send them to the shared buffer of
         // the track
         if self.preview_buf.len() >= PREVIEW_CACHE_MAX {
             // convert cached downsampled buffer to preview samples
-            let mut preview_samples = self.samples_2_preview_samples(&self.preview_buf);
+            let samples = &self.preview_buf;
+            // let samples = self.smoothing(&self.preview_buf);
+            let mut preview_samples = self.samples_2_preview_samples(&samples);
             self.track.append_preview_samples(&mut preview_samples);
             self.preview_buf = vec![];
         }
@@ -231,32 +232,50 @@ impl Analyzer {
         };
     }
 
+    fn smoothing(&self, samples: &[f32]) -> Vec<f32> {
+        let mut peaks = vec![];
+        let mut second_last = 0.;
+        let mut last = 0.;
+        for s in samples {
+            if *s > 0. && second_last > 0. && last > 0. {
+                //detect peak
+                if second_last < last && *s < last {
+                    peaks.push(last);
+                }
+            };
+            second_last = last;
+            last = *s;
+        }
+        peaks
+    }
+
     /// convert a buffer of samples into a buffer of preview samples of same lenght
     fn samples_2_preview_samples(&self, samples: &Vec<f32>) -> Vec<PreviewSample> {
         let samples = samples.into_iter().map(|s| *s as f64).collect_vec();
         let sample_rate = self.track.codec_params.sample_rate.unwrap() as usize;
         let low_low_crossover = cutoff_from_frequency(20., sample_rate);
-        let high_low_crossover = cutoff_from_frequency(100., sample_rate);
+        let high_low_crossover = cutoff_from_frequency(50., sample_rate);
         let low_mid_crossover = cutoff_from_frequency(500., sample_rate);
         let high_mid_crossover = cutoff_from_frequency(3000., sample_rate);
         let low_high_crossover = cutoff_from_frequency(10000., sample_rate);
         let high_high_crossover = cutoff_from_frequency(18000., sample_rate);
-        let low_band_filter = lowpass_filter(high_low_crossover, 100.);
+        let low_band_filter = lowpass_filter(high_low_crossover, 0.8);
         let lows = convolve(&low_band_filter, &samples[..]);
-        let high_band_filter = highpass_filter(low_high_crossover, 0.08);
+        let high_band_filter = highpass_filter(low_high_crossover, 1.);
         let highs = convolve(&high_band_filter, &samples[..]);
-        let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.08);
+        // let highs = self.smoothing(&(highs.into_iter().map(|s| (s as f32)).collect()));
+        let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.8);
         let mids = convolve(&mid_band_filter, &samples[..]);
         let zipped = highs
             .into_iter()
-            .zip(lows.into_iter())
             .zip(mids.into_iter())
+            .zip(lows.into_iter())
             .take(samples.len());
         let preview_samples = zipped
             .map(|x| {
-                let mids = x.1 as f32;
-                let lows = x.0 .0 as f32;
-                let highs = x.0 .1 as f32;
+                let lows = x.1 as f32;
+                let highs = x.0 .0 as f32;
+                let mids = x.0 .1 as f32;
                 let preview_sample = PreviewSample { lows, mids, highs };
                 // println!("{:#?}", preview_sample);
                 preview_sample

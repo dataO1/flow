@@ -45,7 +45,7 @@ impl<'a> LivePreviewWidget<'a> {
             let y = match layer {
                 WaveFormLayer::Lows => sample.lows,
                 WaveFormLayer::Mids => sample.mids,
-                WaveFormLayer::Highs => sample.highs,
+                WaveFormLayer::Highs => sample.highs * 2.,
             };
             let y = (y * (y_max as f32)) as f64;
             let color = match layer {
@@ -88,11 +88,10 @@ impl<'a> Widget for LivePreviewWidget<'a> {
                     color: Color::Red,
                 });
                 // ctx.layer();
-                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
+                // self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
                 // ctx.layer();
                 self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
-                // ctx.layer();
-                // self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
+                self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
             });
         canvas.render(area, buf);
     }
