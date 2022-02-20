@@ -83,7 +83,11 @@ impl Track {
             let l = (player_pos as f32 - (target_size as f32 / 2.0)) as usize;
             let r = (player_pos as f32 + (target_size as f32 / 2.0)) as usize;
             let r = std::cmp::min(r, preview_buffer.len());
-            preview_buffer[l..r].to_owned()
+            if l < r {
+                preview_buffer[l..r].to_owned()
+            } else {
+                vec![]
+            }
         } else {
             let diff = diff.abs() as usize;
             let mut padding: Vec<PreviewSample> = vec![0.0 as f32; diff]
