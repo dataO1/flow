@@ -25,8 +25,6 @@ pub struct Track {
     pub codec_params: CodecParameters,
     /// downsampled version of decoded frames for preview
     preview_buffer: RwLock<Vec<PreviewSample>>,
-    /// marks the track as analyzed
-    analyzed: bool,
 }
 
 impl Track {
@@ -38,7 +36,6 @@ impl Track {
             file_path,
             file_name,
             codec_params,
-            analyzed: false,
         }
     }
 
@@ -54,11 +51,18 @@ impl Track {
     /// returns the analysis progress for this track.
     /// The result is a number between 0 and 100 (%).
     pub fn progress(&self) -> Option<u8> {
-        let mut res = Some(0);
-        if self.analyzed {
-            res = Some(100)
+        let mut res = 0.;
+        let preview_buffer = self.preview_buffer.read().unwrap();
+
+        if let (Some(n_frames), Some(sample_rate)) =
+            (self.codec_params.n_frames, self.codec_params.sample_rate)
+        {
+            if preview_buffer.len() > 0 {
+                res = (preview_buffer.len() * (sample_rate / PREVIEW_SAMPLE_RATE) as usize) as f64
+                    / (n_frames as f64)
+            }
         }
-        res
+        Some((res * 100.).ceil() as u8)
     }
 
     /// returns the preview samples for a given player position and target screen size
@@ -68,7 +72,7 @@ impl Track {
         target_size: usize,
         playhead_position: &TimeMarker,
     ) -> Vec<PreviewSample> {
-        let preview_buffer = self.preview_buffer.read().unwrap().to_owned();
+        let preview_buffer = self.preview_buffer.read().unwrap();
         // let buffer_len_in_millis = (preview_buffer.len() / PREVIEW_SAMPLE_RATE as usize) * 1000;
         let mut curr_time_in_seconds = playhead_position.get_time_in_seconds();
         let player_pos = (curr_time_in_seconds * PREVIEW_SAMPLE_RATE as f64) as usize;
