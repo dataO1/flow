@@ -1,12 +1,13 @@
 use crate::core::{
     analyzer::{self, Analyzer},
-    player,
+    player::{self, TimeMarker},
 };
 use crossterm::{
     event::{self, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
+use symphonia::core::units::Time;
 
 use std::{
     fs, io,
@@ -67,13 +68,13 @@ pub struct App {
     /// hashmap of tracks, that were found in the music dir
     tracks: TrackList,
     /// current player position in number of packets.
-    player_position: Arc<Mutex<usize>>,
+    player_position: Arc<Mutex<Option<TimeMarker>>>,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
-            player_position: Arc::new(Mutex::new(0)),
+            player_position: Arc::new(Mutex::new(None)),
             latest_event: String::from(""),
             tracks: TrackList::default(),
             active_event_scope: EventScope::FileList,
@@ -141,6 +142,16 @@ impl App {
                         KeyCode::Char('k') => {
                             self.tracks.focus_previous();
                         }
+                        // skip backwards
+                        KeyCode::Char('h') => {
+                            player_messages_out
+                                .send(Message::SkipBackward(Time::new(20, 0.)))
+                                .unwrap();
+                        }
+                        // skip forward
+                        KeyCode::Char('l') => player_messages_out
+                            .send(Message::SkipForward(Time::new(20, 0.)))
+                            .unwrap(),
                         // Toggle Play
                         KeyCode::Char(' ') => {
                             player_messages_out.send(Message::TogglePlay).unwrap();
@@ -218,12 +229,12 @@ impl App {
                 .as_ref(),
             )
             .split(f.size());
+        let player_position = (*self.player_position.lock().unwrap()).clone();
         if let Some(track) = self.tracks.get_loaded() {
-            let live_preview =
-                LivePreviewWidget::new(&track, *self.player_position.lock().unwrap());
-            let preview = PreviewWidget::new(&track, *self.player_position.lock().unwrap());
+            let live_preview = LivePreviewWidget::new(&track, &player_position);
+            let preview = PreviewWidget::new(&track, 0);
 
-            f.render_widget(preview, window[1]);
+            // f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
         }
 

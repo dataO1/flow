@@ -16,17 +16,24 @@ use symphonia::core::formats::{FormatOptions, Track};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use symphonia::core::units::{Time, TimeBase, TimeStamp};
+
+pub enum SkipType {
+    Forward,
+    Backward,
+}
 
 pub enum Message {
     /// Load a new file
     Load(String),
     /// Toggle playback
     TogglePlay,
-    /// Start playing in "Cue" mode (on CueStop the player resumes to the point of the track, where
-    /// Cue got invoked)
+    /// Same as Cue button on CDJ
     Cue,
-    /// Close the player
-    Close,
+    /// Skip forward a number of millis
+    SkipForward(Time),
+    /// Skip backwards a number of millis
+    SkipBackward(Time),
     /// Get missing preview Data. The parameter tells the player how many preview samples the app
     /// already has
     GetPreview(usize),
@@ -42,17 +49,66 @@ pub enum PlayerState {
     Closed,
 }
 
+/// struct for converting between different formats for marking a specific time in a track
+#[derive(Clone)]
+pub struct TimeMarker {
+    /// everything is stored in timestamp format
+    ts: TimeStamp,
+    /// the tracks timebase, needed for conversion to and from TimeStamp format
+    track: Track,
+}
+
+impl TimeMarker {
+    pub fn new(track: Track) -> Self {
+        Self { track, ts: 0 }
+    }
+
+    fn add_time(&mut self, offset: Time) {
+        let mut current = self
+            .track
+            .codec_params
+            .time_base
+            .unwrap()
+            .calc_time(self.ts);
+        let new_time = Time {
+            seconds: (current.seconds + offset.seconds),
+            frac: (current.frac + offset.frac),
+        };
+        let new_ts = self
+            .track
+            .codec_params
+            .time_base
+            .unwrap()
+            .calc_timestamp(new_time);
+        self.ts = new_ts;
+    }
+
+    fn go_to(&mut self, ts: u64) {
+        self.ts = ts;
+    }
+
+    pub fn get_timestamp(&self) -> u64 {
+        self.ts
+    }
+
+    pub fn get_time_in_seconds(&self) -> f64 {
+        let time = self
+            .track
+            .codec_params
+            .time_base
+            .unwrap()
+            .calc_time(self.ts);
+        (time.seconds as f64) + (time.frac)
+    }
+}
+
 pub struct Player {
     /// player state
     state: PlayerState,
-    /// player position in packages
-    position: Arc<Mutex<usize>>,
-    /// current timestamp
-    ts: u64,
-    /// last cue point
-    cue_point: usize,
-    /// last cue point as timestamp
-    cue_point_time: u64,
+    /// current playhead position
+    position_marker: Arc<Mutex<Option<TimeMarker>>>,
+    /// cue point as a TimeMarker
+    cue_point_marker: Option<TimeMarker>,
     /// Formatreader
     reader: Option<Box<dyn FormatReader>>,
     /// Decoder
@@ -61,7 +117,7 @@ pub struct Player {
     output: Option<psimple::Simple>,
     /// Signal Spec
     spec: Option<SignalSpec>,
-    /// track id
+    /// Symphonia track information
     track: Option<Track>,
 }
 
@@ -73,7 +129,7 @@ impl Player {
     /// Initializes a new thread, that handles Commands.
     /// Returns a Sender, which can be used to send messages to the player
     pub fn spawn(
-        player_position: Arc<Mutex<usize>>,
+        player_position: Arc<Mutex<Option<TimeMarker>>>,
         player_message_in: Receiver<player::Message>,
         player_event_out: Sender<player::Event>,
     ) -> JoinHandle<()> {
@@ -85,19 +141,17 @@ impl Player {
         })
     }
 
-    fn new(position: Arc<Mutex<usize>>) -> Self {
+    fn new(position: Arc<Mutex<Option<TimeMarker>>>) -> Self {
         // the frame buffer. TODO: use sensible vector sizes
         Self {
             state: PlayerState::Unloaded,
-            position,
             reader: None,
             decoder: None,
             output: None,
             spec: None,
-            cue_point: 0,
-            ts: 0,
             track: None,
-            cue_point_time: 0,
+            cue_point_marker: None,
+            position_marker: position,
         }
     }
 
@@ -122,7 +176,12 @@ impl Player {
                 Ok(Message::Cue) => {
                     self.cue();
                 }
-                Ok(Message::Close) => break,
+                Ok(Message::SkipForward(time)) => {
+                    self.skip(time, SkipType::Forward);
+                }
+                Ok(Message::SkipBackward(time)) => {
+                    self.skip(time, SkipType::Backward);
+                }
                 Ok(_msg) => {
                     todo!()
                 }
@@ -144,22 +203,27 @@ impl Player {
         self.init_decoder();
         self.init_output();
         self.state = PlayerState::Paused;
-        *self.position.lock().unwrap() = 0;
+        if let Some(track) = &self.track {
+            *self.position_marker.lock().unwrap() = Some(TimeMarker::new(track.clone()));
+            self.cue_point_marker = (*self.position_marker.lock().unwrap()).clone();
+        }
     }
 
     fn cue(&mut self) {
         if self.state != PlayerState::Playing {
             // set cue new point
-            self.cue_point = *self.position.lock().unwrap();
-            self.cue_point_time = self.ts;
+            self.cue_point_marker = (*self.position_marker.lock().unwrap()).clone();
         } else {
             // return to last cue point
-            *self.position.lock().unwrap() = self.cue_point;
-            if let (Some(track), Some(reader)) = (&self.track, &mut self.reader) {
+            if let (Some(track), Some(reader), Some(cue)) =
+                (&self.track, &mut self.reader, &self.cue_point_marker)
+            {
+                let sample_rate = track.codec_params.sample_rate.unwrap();
+                *self.position_marker.lock().unwrap() = self.cue_point_marker.clone();
                 reader.seek(
                     symphonia::core::formats::SeekMode::Accurate,
                     symphonia::core::formats::SeekTo::TimeStamp {
-                        ts: self.cue_point_time,
+                        ts: cue.ts,
                         track_id: track.id,
                     },
                 );
@@ -194,12 +258,37 @@ impl Player {
         };
     }
 
+    /// skip a given amount of milliseconds, either forward or backwards
+    fn skip(&mut self, offset: Time, t: SkipType) {
+        if let (Some(track), Some(reader), Some(playhead)) = (
+            &self.track,
+            &mut self.reader,
+            &mut (*self.position_marker.lock().unwrap()),
+        ) {
+            playhead.add_time(offset);
+            let track_id = track.id;
+            let res = reader.seek(
+                symphonia::core::formats::SeekMode::Accurate,
+                symphonia::core::formats::SeekTo::TimeStamp {
+                    ts: playhead.ts,
+                    track_id,
+                },
+            );
+        }
+    }
+
     fn play(&mut self) -> Result<(), symphonia::core::errors::Error> {
-        *self.position.lock().unwrap() += 1;
-        match (&mut self.reader, &mut self.decoder, &mut self.output) {
-            (Some(reader), Some(decoder), Some(out)) => {
+        match (
+            &mut self.reader,
+            &mut self.decoder,
+            &mut self.output,
+            &self.track,
+        ) {
+            (Some(reader), Some(decoder), Some(out), Some(track)) => {
                 let packet = reader.next_packet()?;
-                self.ts = packet.ts;
+                if let Some(pos) = &mut (*self.position_marker.lock().unwrap()) {
+                    pos.go_to(packet.ts());
+                }
                 let decoded = decoder.decode(&packet).unwrap();
                 let mut raw_sample_buf =
                     RawSampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());

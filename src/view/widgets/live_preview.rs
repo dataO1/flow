@@ -9,11 +9,12 @@ use tui::widgets::{
 };
 
 use crate::core::analyzer::PreviewSample;
+use crate::core::player::TimeMarker;
 use crate::view::model::track::Track;
 
 pub struct LivePreviewWidget<'a> {
     track: &'a Track,
-    player_pos: usize,
+    player_pos: &'a Option<TimeMarker>,
 }
 
 pub enum WaveFormLayer {
@@ -23,7 +24,7 @@ pub enum WaveFormLayer {
 }
 
 impl<'a> LivePreviewWidget<'a> {
-    pub fn new(track: &'a Track, player_pos: usize) -> Self {
+    pub fn new(track: &'a Track, player_pos: &'a Option<TimeMarker>) -> Self {
         Self { player_pos, track }
     }
 
@@ -34,32 +35,34 @@ impl<'a> LivePreviewWidget<'a> {
         target_size: usize,
         y_max: usize,
     ) {
-        for (i, sample) in self
-            .track
-            .live_preview(target_size, self.player_pos, target_size / 2)
-            .into_iter()
-            .take(self.player_pos)
-            .enumerate()
-        {
-            let x = (-((target_size / 2) as i32) + i as i32) as f64;
-            let y = match layer {
-                WaveFormLayer::Lows => sample.lows,
-                WaveFormLayer::Mids => sample.mids,
-                WaveFormLayer::Highs => sample.highs * 2.,
-            };
-            let y = (y * (y_max as f32)) as f64;
-            let color = match layer {
-                WaveFormLayer::Lows => Color::Red,
-                WaveFormLayer::Mids => Color::Green,
-                WaveFormLayer::Highs => Color::White,
-            };
-            ctx.draw(&Line {
-                x1: x,
-                x2: x,
-                y1: y,
-                y2: -y,
-                color,
-            });
+        if let Some(player_pos) = self.player_pos {
+            for (i, sample) in self
+                .track
+                .live_preview(target_size, player_pos)
+                .into_iter()
+                .take(target_size)
+                .enumerate()
+            {
+                let x = (-((target_size / 2) as i32) + i as i32) as f64;
+                let y = match layer {
+                    WaveFormLayer::Lows => sample.lows,
+                    WaveFormLayer::Mids => sample.mids,
+                    WaveFormLayer::Highs => sample.highs * 2.,
+                };
+                let y = (y * (y_max as f32)) as f64;
+                let color = match layer {
+                    WaveFormLayer::Lows => Color::Red,
+                    WaveFormLayer::Mids => Color::Green,
+                    WaveFormLayer::Highs => Color::White,
+                };
+                ctx.draw(&Line {
+                    x1: x,
+                    x2: x,
+                    y1: y,
+                    y2: -y,
+                    color,
+                });
+            }
         }
     }
 }

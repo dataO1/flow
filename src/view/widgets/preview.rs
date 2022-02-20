@@ -26,9 +26,6 @@ impl<'a> Widget for PreviewWidget<'a> {
     fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
         let x_max = area.width as usize;
         let y_max = area.height as usize;
-        let n_packets = self.track.n_packets().unwrap_or(1);
-        let playhead_position = (self.player_position as f64 / n_packets as f64) * (x_max as f64);
-        let playhead_position = (playhead_position as i64) - (x_max as i64);
         let canvas = Canvas::default()
             .block(Block::default())
             .x_bounds([-(x_max as f64), x_max as f64])
@@ -59,8 +56,8 @@ impl<'a> Widget for PreviewWidget<'a> {
                 }
                 ctx.layer();
                 ctx.draw(&Line {
-                    x1: playhead_position as f64,
-                    x2: playhead_position as f64,
+                    x1: 0.0,
+                    x2: 0.0,
                     y1: y_max as f64,
                     y2: -(y_max as f64),
                     color: Color::Red,

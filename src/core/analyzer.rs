@@ -27,12 +27,9 @@ use symphonia::core::{
 //------------------------------------------------------------------//
 //                             Analyzer                             //
 //------------------------------------------------------------------//
-/// Max number of preview samples to cache before sending to
-/// the shared preview buffer of the track
-const PREVIEW_CACHE_MAX: usize = 5000;
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
-pub const PREVIEW_SAMPLES_PER_PACKET: usize = 2 << 3;
+pub const PREVIEW_SAMPLE_RATE: u32 = 441;
 
 /// This is a mono-summed, downsampled version of a number of decoded samples
 #[derive(Copy, Clone, Debug)]
@@ -68,7 +65,8 @@ pub struct Analyzer {
     sample_buf: Vec<f32>,
     /// Local Cache for downsampled samples
     preview_buf: Vec<f32>,
-    beats: Vec<f32>,
+    /// coded parameters of decoded track
+    codec_params: CodecParameters,
 }
 
 impl Analyzer {
@@ -88,7 +86,6 @@ impl Analyzer {
                             .analyzer_event_out
                             .send(analyzer::Event::DoneAnalyzing(file_path))
                             .unwrap();
-                        println!("{:#?}", analyzer.beats.len());
                         analyzer.analyze_bpm();
                         break;
                     }
@@ -101,7 +98,7 @@ impl Analyzer {
         let reader = Analyzer::get_reader(file_path.clone());
         let codec_params = reader.default_track().unwrap().clone().codec_params;
         let decoder = Analyzer::get_decoder(&codec_params).unwrap();
-        let track = Arc::new(model::track::Track::new(file_path, codec_params));
+        let track = Arc::new(model::track::Track::new(file_path, codec_params.clone()));
         analyzer_event_out
             .send(Event::NewTrack(Arc::clone(&track)))
             .unwrap();
@@ -112,7 +109,7 @@ impl Analyzer {
             preview_buf: vec![],
             track,
             analyzer_event_out,
-            beats: vec![],
+            codec_params,
         }
     }
 
@@ -174,21 +171,27 @@ impl Analyzer {
         // this is the interleaved sample buffer, which means for each point in time there are n
         // samples where n is the number of channels in the track (for stereo that's 2)
         let samples = sample_buffer.samples();
-        self.track.set_estimated_samples_per_packet(samples.len());
         // cache decoded frames
         self.sample_buf.extend_from_slice(samples);
-        let num_channels = self.track.codec_params.channels.unwrap().count();
-        let converter =
-            Samplerate::new(ConverterType::SincFastest, 44100, 441, num_channels).unwrap();
-        // let samples = converter.process_last(samples).unwrap();
-        let mut samples =
-            Analyzer::downsample_to_fixed_size(&samples, num_channels, PREVIEW_SAMPLES_PER_PACKET);
-        self.preview_buf.append(&mut samples);
-        // as soon as we have enough cached preview samples send them to the shared buffer of
-        // the track
-        if self.preview_buf.len() >= PREVIEW_CACHE_MAX {
+        // let mut samples =
+        //     Analyzer::downsample_to_fixed_size(&samples, num_channels, PREVIEW_SAMPLE_RATE);
+        self.preview_buf.extend_from_slice(samples);
+        // when we have at least a second of material, resample and scan it
+        if self.preview_buf.len() >= self.codec_params.sample_rate.unwrap() as usize {
             // convert cached downsampled buffer to preview samples
             let samples = &self.preview_buf;
+            let num_channels = self.track.codec_params.channels.unwrap().count();
+            let converter = Samplerate::new(
+                ConverterType::SincFastest,
+                44100,
+                PREVIEW_SAMPLE_RATE,
+                num_channels,
+            )
+            .unwrap();
+            // there are now 441 samples per second
+            let mut samples = converter.process_last(&samples).unwrap();
+            let samples = self.sum_to_mono(&samples);
+            // println!("{}", samples.len());
             // let samples = self.smoothing(&self.preview_buf);
             let mut preview_samples = self.samples_2_preview_samples(&samples);
             self.track.append_preview_samples(&mut preview_samples);
@@ -224,7 +227,7 @@ impl Analyzer {
                         };
                     });
                 let t = tempo.get_bpm();
-                println!("{}", t);
+                // println!("{}", t);
             }
             Err(err) => {
                 println!("{:#?}", err);
@@ -232,6 +235,15 @@ impl Analyzer {
         };
     }
 
+    fn sum_to_mono(&self, samples: &[f32]) -> Vec<f32> {
+        let num_channels = self.track.codec_params.channels.unwrap().count();
+        samples
+            .into_iter()
+            .chunks(num_channels)
+            .into_iter()
+            .map(|chunk| chunk.into_iter().sum::<f32>() / num_channels as f32)
+            .collect()
+    }
     fn smoothing(&self, samples: &[f32]) -> Vec<f32> {
         let mut peaks = vec![];
         let mut second_last = 0.;
