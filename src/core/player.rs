@@ -11,8 +11,8 @@ use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
 use symphonia::core::codecs::Decoder;
 use symphonia::core::codecs::DecoderOptions;
-use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::FormatReader;
+use symphonia::core::formats::{FormatOptions, Track};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -22,13 +22,9 @@ pub enum Message {
     Load(String),
     /// Toggle playback
     TogglePlay,
-    /// Stop playback and return to beginning of the track
-    Stop,
     /// Start playing in "Cue" mode (on CueStop the player resumes to the point of the track, where
     /// Cue got invoked)
     Cue,
-    /// Stop playback and resume to start of Cue
-    CueStop,
     /// Close the player
     Close,
     /// Get missing preview Data. The parameter tells the player how many preview samples the app
@@ -51,6 +47,12 @@ pub struct Player {
     state: PlayerState,
     /// player position in packages
     position: Arc<Mutex<usize>>,
+    /// current timestamp
+    ts: u64,
+    /// last cue point
+    cue_point: usize,
+    /// last cue point as timestamp
+    cue_point_time: u64,
     /// Formatreader
     reader: Option<Box<dyn FormatReader>>,
     /// Decoder
@@ -59,6 +61,8 @@ pub struct Player {
     output: Option<psimple::Simple>,
     /// Signal Spec
     spec: Option<SignalSpec>,
+    /// track id
+    track: Option<Track>,
 }
 
 impl Player {
@@ -90,6 +94,10 @@ impl Player {
             decoder: None,
             output: None,
             spec: None,
+            cue_point: 0,
+            ts: 0,
+            track: None,
+            cue_point_time: 0,
         }
     }
 
@@ -110,6 +118,9 @@ impl Player {
                 }
                 Ok(Message::TogglePlay) => {
                     self.toggle_play();
+                }
+                Ok(Message::Cue) => {
+                    self.cue();
                 }
                 Ok(Message::Close) => break,
                 Ok(_msg) => {
@@ -136,6 +147,26 @@ impl Player {
         *self.position.lock().unwrap() = 0;
     }
 
+    fn cue(&mut self) {
+        if self.state != PlayerState::Playing {
+            // set cue new point
+            self.cue_point = *self.position.lock().unwrap();
+            self.cue_point_time = self.ts;
+        } else {
+            // return to last cue point
+            *self.position.lock().unwrap() = self.cue_point;
+            if let (Some(track), Some(reader)) = (&self.track, &mut self.reader) {
+                reader.seek(
+                    symphonia::core::formats::SeekMode::Accurate,
+                    symphonia::core::formats::SeekTo::TimeStamp {
+                        ts: self.cue_point_time,
+                        track_id: track.id,
+                    },
+                );
+            }
+        }
+    }
+
     fn pause(&mut self) {
         if let Some(out) = &mut self.output {
             out.flush();
@@ -146,7 +177,9 @@ impl Player {
         // check if audio output is valid
         if let Some(_) = &mut self.output {
             match self.state {
-                PlayerState::Paused => self.state = PlayerState::Playing,
+                PlayerState::Paused => {
+                    self.state = PlayerState::Playing;
+                }
                 PlayerState::Playing => {
                     self.state = PlayerState::Paused;
                     self.pause();
@@ -166,6 +199,7 @@ impl Player {
         match (&mut self.reader, &mut self.decoder, &mut self.output) {
             (Some(reader), Some(decoder), Some(out)) => {
                 let packet = reader.next_packet()?;
+                self.ts = packet.ts;
                 let decoded = decoder.decode(&packet).unwrap();
                 let mut raw_sample_buf =
                     RawSampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
@@ -274,6 +308,9 @@ impl Player {
         };
         if let Some(reader) = &mut self.reader {
             let track = reader.default_track().unwrap();
+            if let None = self.track {
+                self.track = Some(track.clone());
+            }
             let codec_params = &track.codec_params;
             let mut decoder = symphonia::default::get_codecs()
                 .make(&codec_params, &dec_opts)

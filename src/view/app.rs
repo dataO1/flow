@@ -146,6 +146,7 @@ impl App {
                             player_messages_out.send(Message::TogglePlay).unwrap();
                             self.latest_event = String::from("TogglePlay");
                         }
+                        KeyCode::Char('c') => player_messages_out.send(Message::Cue).unwrap(),
                         // Load Track
                         KeyCode::Enter => {
                             if self.active_event_scope != EventScope::FileList {
