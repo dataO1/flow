@@ -46,9 +46,9 @@ impl<'a> LivePreviewWidget<'a> {
                 let y_lows = sample.lows;
                 let y_lows = (y_lows * (y_max as f32)) as f64;
                 let y = match layer {
-                    WaveFormLayer::Lows => sample.lows * 0.8,
+                    WaveFormLayer::Lows => sample.lows,
                     WaveFormLayer::Mids => sample.mids,
-                    WaveFormLayer::Highs => sample.highs,
+                    WaveFormLayer::Highs => sample.highs * 2.,
                 };
                 let y = (y * (y_max as f32)) as f64;
                 let color = match layer {
@@ -56,34 +56,13 @@ impl<'a> LivePreviewWidget<'a> {
                     WaveFormLayer::Mids => Color::Gray,
                     WaveFormLayer::Highs => Color::White,
                 };
-                if let WaveFormLayer::Mids = layer {
-                    // if mids are "embedded" in lows draw the difference only
-                    if y < y_lows {
-                        ctx.draw(&Line {
-                            x1: x,
-                            x2: x,
-                            y1: y.floor(),
-                            y2: -y.floor(),
-                            color,
-                        });
-                    } else {
-                        ctx.draw(&Line {
-                            x1: x,
-                            x2: x,
-                            y1: y,
-                            y2: -y,
-                            color,
-                        });
-                    };
-                } else {
-                    ctx.draw(&Line {
-                        x1: x,
-                        x2: x,
-                        y1: y,
-                        y2: -y,
-                        color,
-                    });
-                }
+                ctx.draw(&Line {
+                    x1: x,
+                    x2: x,
+                    y1: y,
+                    y2: -y,
+                    color,
+                });
             }
         }
     }

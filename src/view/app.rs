@@ -231,11 +231,11 @@ impl App {
             .constraints(
                 [
                     // split for the live preview
-                    Constraint::Percentage(20),
+                    Constraint::Percentage(10),
                     // split for the waveform overview
                     Constraint::Percentage(5),
                     // split for the main body
-                    Constraint::Percentage(73),
+                    Constraint::Percentage(83),
                     // split for the footer
                     Constraint::Percentage(2),
                 ]
