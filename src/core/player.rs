@@ -18,11 +18,6 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::{Time, TimeBase, TimeStamp};
 
-pub enum SkipType {
-    Forward,
-    Backward,
-}
-
 pub enum Message {
     /// Load a new file
     Load(String),
@@ -58,21 +53,44 @@ pub struct TimeMarker {
     track: Track,
 }
 
+impl PartialEq for TimeMarker {
+    fn eq(&self, other: &Self) -> bool {
+        self.ts == other.ts
+    }
+}
+
+enum SkipDirection {
+    Forward,
+    Backward,
+}
+
 impl TimeMarker {
     pub fn new(track: Track) -> Self {
         Self { track, ts: 0 }
     }
 
-    fn add_time(&mut self, offset: Time) {
+    fn skip(&mut self, offset: Time, direction: SkipDirection) {
         let mut current = self
             .track
             .codec_params
             .time_base
             .unwrap()
             .calc_time(self.ts);
-        let new_time = Time {
-            seconds: (current.seconds + offset.seconds),
-            frac: (current.frac + offset.frac),
+        let new_time = match direction {
+            SkipDirection::Forward => Time {
+                seconds: (current.seconds + offset.seconds),
+                frac: (current.frac + offset.frac),
+            },
+            SkipDirection::Backward => {
+                if offset.seconds <= current.seconds {
+                    let seconds = (current.seconds - offset.seconds);
+                    let frac = (current.frac - offset.frac);
+                    let res = Time { seconds, frac };
+                    res
+                } else {
+                    current
+                }
+            }
         };
         let new_ts = self
             .track
@@ -177,10 +195,10 @@ impl Player {
                     self.cue();
                 }
                 Ok(Message::SkipForward(time)) => {
-                    self.skip(time, SkipType::Forward);
+                    self.skip(time, SkipDirection::Forward);
                 }
                 Ok(Message::SkipBackward(time)) => {
-                    self.skip(time, SkipType::Backward);
+                    self.skip(time, SkipDirection::Backward);
                 }
                 Ok(_msg) => {
                     todo!()
@@ -211,8 +229,14 @@ impl Player {
 
     fn cue(&mut self) {
         if self.state != PlayerState::Playing {
+            let curr_position = &(*self.position_marker.lock().unwrap());
+            if let (Some(curr_position), Some(curr_cue)) = (curr_position, &self.cue_point_marker) {
+                if curr_position == curr_cue {
+                    self.state = PlayerState::Playing;
+                }
+            }
             // set cue new point
-            self.cue_point_marker = (*self.position_marker.lock().unwrap()).clone();
+            self.cue_point_marker = curr_position.to_owned();
         } else {
             // return to last cue point
             if let (Some(track), Some(reader), Some(cue)) =
@@ -259,13 +283,14 @@ impl Player {
     }
 
     /// skip a given amount of milliseconds, either forward or backwards
-    fn skip(&mut self, offset: Time, t: SkipType) {
+    fn skip(&mut self, offset: Time, t: SkipDirection) {
         if let (Some(track), Some(reader), Some(playhead)) = (
             &self.track,
             &mut self.reader,
             &mut (*self.position_marker.lock().unwrap()),
         ) {
-            playhead.add_time(offset);
+            playhead.skip(offset, t);
+            println!("{}", playhead.ts);
             let track_id = track.id;
             let res = reader.seek(
                 symphonia::core::formats::SeekMode::Accurate,

@@ -9,15 +9,12 @@ use crossterm::{
 };
 use symphonia::core::units::Time;
 
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{
     fs, io,
     path::Path,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     time::Duration,
-};
-use std::{
-    sync::mpsc::{channel, Receiver, Sender},
-    time::Instant,
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
