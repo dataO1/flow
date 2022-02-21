@@ -18,6 +18,8 @@ indexmap = "1.8.0"
 hash = "0.3.0"
 samplerate = "0.2.4"
 synthrs = {git = "https://github.com/gyng/synthrs"}
+moving_avg = "0.2.0"
+yata = { version = "0.6.0"}
 
 
 [target.'cfg(target_os = "linux")'.dependencies]

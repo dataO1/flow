@@ -323,6 +323,7 @@ dependencies = [
  "libpulse-binding",
  "libpulse-simple-binding",
  "log",
+ "moving_avg",
  "rand 0.8.4",
  "rb",
  "samplerate",
@@ -330,6 +331,7 @@ dependencies = [
  "synthrs",
  "tokio",
  "tui",
+ "yata",
 ]
 
 [[package]]
@@ -606,6 +608,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "moving_avg"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5f94f2ad817676ed7698736c8adb4e3dcdd4ea86a16486d63f46bf755dafffb"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1082,6 +1093,20 @@ name = "serde"
 version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce31e24b01e1e524df96f1c2fdd054405f8d7376249a5110886fb4b658484789"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.136"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08597e7152fcd306f41838ed3e37be9eaeed2b61c42e2117266a554fab4662f9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "shlex"
@@ -1549,3 +1574,12 @@ name = "windows_x86_64_msvc"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "504a2476202769977a040c6364301a3f65d0cc9e3fb08600b2bda150a0488316"
+
+[[package]]
+name = "yata"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "690b2aef7186661dae2495ebe4e82f7365cb95e759590be74c940e0e4d71772c"
+dependencies = [
+ "serde",
+]

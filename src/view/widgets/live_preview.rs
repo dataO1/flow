@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::Color;
@@ -47,7 +46,7 @@ impl<'a> LivePreviewWidget<'a> {
                 let y = match layer {
                     WaveFormLayer::Lows => sample.lows,
                     WaveFormLayer::Mids => sample.mids,
-                    WaveFormLayer::Highs => sample.highs * 2.,
+                    WaveFormLayer::Highs => sample.highs,
                 };
                 let y = (y * (y_max as f32)) as f64;
                 let color = match layer {
@@ -90,71 +89,10 @@ impl<'a> Widget for LivePreviewWidget<'a> {
                     y2: y_max as f64,
                     color: Color::Red,
                 });
-                // ctx.layer();
-                // self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
-                // ctx.layer();
-                self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
+                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
                 self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
+                self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
             });
         canvas.render(area, buf);
-    }
-}
-
-pub type Sample = f32;
-
-/// A buffer to hold audio data meant for display on the terminal.
-#[derive(Debug, PartialEq)]
-pub struct DataBuffer {
-    buffer: VecDeque<Sample>,
-}
-
-impl DataBuffer {
-    /// Makes a zero-filled circular data buffer of the given size.
-    pub fn new(len: usize) -> DataBuffer {
-        DataBuffer {
-            buffer: VecDeque::from(vec![0.; len]),
-        }
-    }
-
-    /// Adds the data to the queue.
-    ///
-    /// The latest data from `buf_data` is pushed to the end of the DataBuffer. If buf_data is
-    /// larger than the DataBuffer, only available samples will be used. if buf_data is smaller,
-    /// the remaining space is filled with the previous most recent.
-    pub fn push_latest_data(&mut self, buf_data: Vec<Sample>) {
-        if buf_data.len() < self.buffer.len() {
-            let diff = self.buffer.len() - buf_data.len();
-
-            // Shift the preserved end data to the beginning
-            for index in 0..diff {
-                self.buffer[index] = self.buffer[index + buf_data.len()];
-            }
-
-            // fill the remaining data from the buf_data
-            for (index, item) in buf_data.iter().enumerate() {
-                self.buffer[index + diff] = *item;
-            }
-        } else {
-            let diff = buf_data.len() - self.buffer.len();
-
-            // Fill the latest available data that will fit.
-
-            // TODO: Complicatedness below avoids a for loop lint. Nice experiment, but maybe find
-            // a better way to solve?
-            let (left, right) = self.buffer.as_mut_slices();
-            let buf_data_source = &buf_data[diff..];
-            left.copy_from_slice(&buf_data_source[..left.len()]);
-            right.copy_from_slice(&buf_data_source[left.len()..]);
-        }
-    }
-
-    /// Returns the length of the buffer
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    /// Returns an iter from the underlying VecDeque
-    pub fn iter(&self) -> std::collections::vec_deque::Iter<Sample> {
-        self.buffer.iter()
     }
 }
