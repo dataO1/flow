@@ -245,9 +245,9 @@ impl App {
         let player_position = (*self.player_position.lock().unwrap()).clone();
         if let Some(track) = self.tracks.get_loaded() {
             let live_preview = LivePreviewWidget::new(&track, &player_position);
-            let preview = PreviewWidget::new(&track, 0);
+            let preview = PreviewWidget::new(&track, &player_position);
 
-            // f.render_widget(preview, window[1]);
+            f.render_widget(preview, window[1]);
             f.render_widget(live_preview, window[0]);
         }
 

@@ -117,7 +117,7 @@ impl TimeMarker {
         self.ts = new_ts;
     }
 
-    fn go_to(&mut self, ts: u64) {
+    fn go_to_timestamp(&mut self, ts: u64) {
         self.ts = ts;
     }
 
@@ -133,6 +133,12 @@ impl TimeMarker {
             .unwrap()
             .calc_time(self.ts);
         (time.seconds as f64) + (time.frac)
+    }
+
+    pub fn get_progress(&self) -> f64 {
+        let t_dur = self.track.codec_params.n_frames.unwrap() as f64
+            / self.track.codec_params.sample_rate.unwrap() as f64;
+        self.get_time_in_seconds() / t_dur
     }
 }
 
@@ -327,7 +333,7 @@ impl Player {
             (Some(reader), Some(decoder), Some(out), Some(track)) => {
                 let packet = reader.next_packet()?;
                 if let Some(pos) = &mut (*self.position_marker.lock().unwrap()) {
-                    pos.go_to(packet.ts());
+                    pos.go_to_timestamp(packet.ts());
                 }
                 let decoded = decoder.decode(&packet).unwrap();
                 let mut raw_sample_buf =

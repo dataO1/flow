@@ -131,8 +131,24 @@ impl Track {
     /// computes a downsampled version of the full track that fits in a buffer of target_size
     pub fn preview(&self, target_size: usize) -> Vec<PreviewSample> {
         let preview_buffer = self.preview_buffer.read().unwrap().clone();
+        let conversion_rate =
+            PREVIEW_SAMPLE_RATE as f64 / self.codec_params.sample_rate.unwrap() as f64;
+        let chunks =
+            (self.codec_params.n_frames.unwrap() as f64 * conversion_rate) / target_size as f64;
         // let preview_buffer =
         //     Analyzer::downsample_to_preview(&preview_buffer, num_channles, target_size);
+        let preview_buffer = preview_buffer
+            .into_iter()
+            .chunks(chunks as usize)
+            .into_iter()
+            .map(|chunk| {
+                let sum: PreviewSample = chunk.into_iter().sum::<PreviewSample>();
+                let lows = sum.lows / chunks as f32;
+                let mids = sum.mids / chunks as f32;
+                let highs = sum.highs / chunks as f32;
+                PreviewSample { lows, mids, highs }
+            })
+            .collect();
         return preview_buffer;
     }
 }
