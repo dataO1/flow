@@ -142,12 +142,12 @@ impl App {
                         // skip backwards
                         KeyCode::Char('h') => {
                             player_messages_out
-                                .send(Message::SkipBackward(Time::new(20, 0.)))
+                                .send(Message::SkipBackward(Time::new(0, 0.01)))
                                 .unwrap();
                         }
                         // skip forward
                         KeyCode::Char('l') => player_messages_out
-                            .send(Message::SkipForward(Time::new(20, 0.)))
+                            .send(Message::SkipForward(Time::new(0, 0.01)))
                             .unwrap(),
                         // Toggle Play
                         KeyCode::Char(' ') => {
@@ -174,6 +174,22 @@ impl App {
                 } else {
                     // Events with modifier (global)
                     match key {
+                        // big skip backward
+                        KeyEvent {
+                            code: KeyCode::Char('h'),
+                            modifiers: KeyModifiers::SHIFT,
+                        } => player_messages_out
+                            .send(Message::SkipBackward(Time::new(20, 0.)))
+                            .unwrap(),
+                        KeyEvent {
+                            code: KeyCode::Char('l'),
+                            modifiers: KeyModifiers::SHIFT,
+                        } => {
+                            println!("skip big");
+                            player_messages_out
+                                .send(Message::SkipForward(Time::new(20, 0.)))
+                                .unwrap();
+                        }
                         KeyEvent {
                             code: KeyCode::Char('q'),
                             modifiers: KeyModifiers::ALT,

@@ -2,6 +2,7 @@ use crate::core::analyzer;
 use crate::view::model;
 use samplerate::{ConverterType, Samplerate};
 use std::{
+    iter::{Map, Sum},
     sync::Arc,
     thread::{spawn, JoinHandle},
 };
@@ -30,7 +31,7 @@ use symphonia::core::{
 //------------------------------------------------------------------//
 /// Determines the number of samples in the preview buffer per packet of the original source.
 /// Should be a multiple of number of channels
-pub const PREVIEW_SAMPLE_RATE: u32 = 441;
+pub const PREVIEW_SAMPLE_RATE: u32 = 2205;
 
 /// This is a mono-summed, downsampled version of a number of decoded samples
 #[derive(Copy, Clone, Debug)]
@@ -38,6 +39,20 @@ pub struct PreviewSample {
     pub lows: f32,
     pub mids: f32,
     pub highs: f32,
+}
+
+impl Sum for PreviewSample {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut lows = 0.;
+        let mut mids = 0.;
+        let mut highs = 0.;
+        for s in iter {
+            lows += s.lows;
+            mids += s.mids;
+            highs += s.highs;
+        }
+        PreviewSample { lows, mids, highs }
+    }
 }
 
 #[derive(Debug)]
@@ -392,5 +407,31 @@ impl Analyzer {
             .collect_vec();
         // assert![preview_samples.len() == samples.len()];
         preview_samples
+    }
+
+    pub fn preview_buffer_apply_filter(
+        buffer: &[PreviewSample],
+        filter: fn(&[f32]) -> Vec<f32>,
+    ) -> Vec<PreviewSample> {
+        let lows: Vec<f32> = buffer.into_iter().map(|s| s.lows).collect();
+        let lows = filter(&lows);
+        let mids: Vec<f32> = buffer.into_iter().map(|s| s.mids).collect();
+        let mids = filter(&mids);
+        let highs: Vec<f32> = buffer.into_iter().map(|s| s.highs).collect();
+        let highs = filter(&highs);
+        let merged = lows
+            .into_iter()
+            .zip(mids.into_iter().zip(highs.into_iter()))
+            .map(|trip| PreviewSample {
+                lows: trip.0,
+                mids: trip.1 .0,
+                highs: trip.1 .1,
+            })
+            .collect_vec();
+        merged
+    }
+
+    pub fn avg_filter(buffer: &[f32]) -> Vec<f32> {
+        vec![]
     }
 }

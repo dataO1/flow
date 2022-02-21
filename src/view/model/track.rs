@@ -2,6 +2,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::sync::RwLock;
 
+use itertools::Itertools;
 use symphonia::core::codecs::CodecParameters;
 
 use crate::core::{
@@ -70,39 +71,61 @@ impl Track {
     pub fn live_preview(
         &self,
         target_size: usize,
+        target_sample_rate: u32,
         playhead_position: &TimeMarker,
     ) -> Vec<PreviewSample> {
+        let conversion_factor = PREVIEW_SAMPLE_RATE as f32 / target_sample_rate as f32;
+        let mut unscaled = vec![];
         let preview_buffer = self.preview_buffer.read().unwrap();
         // let buffer_len_in_millis = (preview_buffer.len() / PREVIEW_SAMPLE_RATE as usize) * 1000;
         let mut curr_time_in_seconds = playhead_position.get_time_in_seconds();
         let player_pos = (curr_time_in_seconds * PREVIEW_SAMPLE_RATE as f64) as usize;
+        let player_pos = player_pos as f32 / conversion_factor;
         // check if enough sampes exist for target resolution
         let diff = player_pos as isize - (target_size / 2) as isize;
         if diff >= 0 {
             // if yes return buffer content
             let l = (player_pos as f32 - (target_size as f32 / 2.0)) as usize;
+            let l = (l as f32 * conversion_factor).ceil() as usize;
             let r = (player_pos as f32 + (target_size as f32 / 2.0)) as usize;
+            let r = (r as f32 * conversion_factor).ceil() as usize;
             let r = std::cmp::min(r, preview_buffer.len());
             if l < r {
-                preview_buffer[l..r].to_owned()
-            } else {
-                vec![]
+                unscaled = preview_buffer[l..r].to_owned();
             }
         } else {
             let diff = diff.abs() as usize;
-            let mut padding: Vec<PreviewSample> = vec![0.0 as f32; diff]
-                .into_iter()
-                .map(|s| PreviewSample {
-                    mids: s,
-                    lows: s,
-                    highs: s,
-                })
-                .collect();
+            let mut padding: Vec<PreviewSample> =
+                vec![0.0 as f32; diff * conversion_factor.floor() as usize]
+                    .into_iter()
+                    .map(|s| PreviewSample {
+                        mids: s,
+                        lows: s,
+                        highs: s,
+                    })
+                    .collect();
             if preview_buffer.len() > 0 {
-                padding.extend(preview_buffer[0..target_size - diff].to_vec());
+                padding.extend(
+                    preview_buffer[0..(target_size - diff) * conversion_factor.floor() as usize]
+                        .to_vec(),
+                );
             };
-            padding.to_owned()
+            unscaled = padding.to_owned()
         }
+        let scaled = unscaled
+            .into_iter()
+            .chunks(conversion_factor.floor() as usize)
+            .into_iter()
+            .map(|chunk| {
+                let sum: PreviewSample = chunk.into_iter().sum::<PreviewSample>();
+                let conversion_rate = conversion_factor.floor();
+                let lows = sum.lows / conversion_rate;
+                let mids = sum.mids / conversion_rate;
+                let highs = sum.highs / conversion_rate;
+                PreviewSample { lows, mids, highs }
+            })
+            .collect();
+        scaled
     }
 
     /// computes a downsampled version of the full track that fits in a buffer of target_size

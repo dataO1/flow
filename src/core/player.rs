@@ -77,14 +77,30 @@ impl TimeMarker {
             .unwrap()
             .calc_time(self.ts);
         let new_time = match direction {
-            SkipDirection::Forward => Time {
-                seconds: (current.seconds + offset.seconds),
-                frac: (current.frac + offset.frac),
-            },
+            SkipDirection::Forward => {
+                let mut seconds = (current.seconds + offset.seconds);
+                let mut frac = (current.frac + offset.frac);
+                // wrap fracs to seconds
+                if frac >= 1. {
+                    seconds += 1;
+                    frac -= 1.;
+                };
+                Time { seconds, frac }
+            }
             SkipDirection::Backward => {
                 if offset.seconds <= current.seconds {
-                    let seconds = (current.seconds - offset.seconds);
-                    let frac = (current.frac - offset.frac);
+                    let mut seconds = (current.seconds - offset.seconds);
+                    let mut frac = (current.frac - offset.frac);
+                    // wrap fracs to seconds
+                    if frac <= 0. {
+                        if seconds > 0 {
+                            seconds -= 1;
+                            frac += 1.;
+                        } else {
+                            seconds = 0;
+                            frac = 0.;
+                        }
+                    }
                     let res = Time { seconds, frac };
                     res
                 } else {
@@ -290,7 +306,6 @@ impl Player {
             &mut (*self.position_marker.lock().unwrap()),
         ) {
             playhead.skip(offset, t);
-            println!("{}", playhead.ts);
             let track_id = track.id;
             let res = reader.seek(
                 symphonia::core::formats::SeekMode::Accurate,

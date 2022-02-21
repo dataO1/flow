@@ -37,14 +37,14 @@ impl<'a> LivePreviewWidget<'a> {
         if let Some(player_pos) = self.player_pos {
             for (i, sample) in self
                 .track
-                .live_preview(target_size, player_pos)
+                .live_preview(target_size, 100, player_pos)
                 .into_iter()
                 .take(target_size)
                 .enumerate()
             {
                 let x = (-((target_size / 2) as i32) + i as i32) as f64;
                 let y = match layer {
-                    WaveFormLayer::Lows => sample.lows,
+                    WaveFormLayer::Lows => sample.lows * 0.8,
                     WaveFormLayer::Mids => sample.mids,
                     WaveFormLayer::Highs => sample.highs,
                 };
