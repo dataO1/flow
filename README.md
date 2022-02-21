@@ -12,8 +12,8 @@ capabilities are implemented, see [Roadmap](#roadmap).
   - Player ([Symphonia](https://crates.io/crates/symphonia))
     * [x] Async Event handling
     * [x] Play/Pause
-    * [ ] Seeking
-    * [ ] Cue
+    * [x] Seeking
+    * [x] Cue
   - Track Analysis
     * [ ] BPM Detection (Aubio)
     * [ ] Beatgrid Detection (Aubio)
