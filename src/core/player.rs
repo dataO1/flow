@@ -92,7 +92,7 @@ impl TimeMarker {
                     let mut seconds = (current.seconds - offset.seconds);
                     let mut frac = (current.frac - offset.frac);
                     // wrap fracs to seconds
-                    if frac <= 0. {
+                    if frac < 0. {
                         if seconds > 0 {
                             seconds -= 1;
                             frac += 1.;

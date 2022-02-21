@@ -177,17 +177,16 @@ impl App {
                         // big skip backward
                         KeyEvent {
                             code: KeyCode::Char('h'),
-                            modifiers: KeyModifiers::SHIFT,
+                            modifiers: KeyModifiers::ALT,
                         } => player_messages_out
-                            .send(Message::SkipBackward(Time::new(20, 0.)))
+                            .send(Message::SkipBackward(Time::new(0, 0.01)))
                             .unwrap(),
                         KeyEvent {
                             code: KeyCode::Char('l'),
-                            modifiers: KeyModifiers::SHIFT,
+                            modifiers: KeyModifiers::ALT,
                         } => {
-                            println!("skip big");
                             player_messages_out
-                                .send(Message::SkipForward(Time::new(20, 0.)))
+                                .send(Message::SkipForward(Time::new(0, 0.01)))
                                 .unwrap();
                         }
                         KeyEvent {
