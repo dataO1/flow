@@ -89,9 +89,9 @@ impl<'a> Widget for LivePreviewWidget<'a> {
                     y2: y_max as f64,
                     color: Color::Red,
                 });
-                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
-                self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
                 self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
+                self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
+                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
             });
         canvas.render(area, buf);
     }

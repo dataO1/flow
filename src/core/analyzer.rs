@@ -222,7 +222,8 @@ impl Analyzer {
             // println!("{}", samples.len());
             // let samples = self.smoothing(&self.preview_buf);
             let samples = converter.process_last(&samples).unwrap();
-            let mut preview_samples = self.samples_2_preview_samples(&samples, PREVIEW_SAMPLE_RATE);
+            let mut preview_samples =
+                self.samples_2_preview_samples(&samples, PREVIEW_SAMPLE_RATE as usize);
             self.track.append_preview_samples(&mut preview_samples);
             self.preview_buf = vec![];
         }
@@ -294,7 +295,7 @@ impl Analyzer {
             .collect()
     }
 
-    fn avg_smoothing_high(&mut self, samples: &[f64]) -> Vec<f32> {
+    fn avg_smoothing_high(&mut self, samples: &[f32]) -> Vec<f32> {
         samples
             .into_iter()
             .map(|s| {
@@ -334,62 +335,31 @@ impl Analyzer {
     fn samples_2_preview_samples(
         &mut self,
         samples: &Vec<f32>,
-        sample_rate: u32,
+        sample_rate: usize,
     ) -> Vec<PreviewSample> {
-        // let num_channels = self.track.codec_params.channels.unwrap().count();
-        // let low_converter = Samplerate::new(
-        //     ConverterType::SincFastest,
-        //     sample_rate,
-        //     PREVIEW_SAMPLE_RATE,
-        //     num_channels,
-        // )
-        // .unwrap();
-        // let mid_converter = Samplerate::new(
-        //     ConverterType::SincFastest,
-        //     sample_rate,
-        //     PREVIEW_SAMPLE_RATE,
-        //     num_channels,
-        // )
-        // .unwrap();
-        // let high_converter = Samplerate::new(
-        //     ConverterType::SincFastest,
-        //     sample_rate,
-        //     PREVIEW_SAMPLE_RATE,
-        //     num_channels,
-        // )
-        // .unwrap();
         // there are now 441 samples per second
         let samples = samples.into_iter().map(|s| *s as f64).collect_vec();
         // let sample_rate = 44100 / 2;
         // let low_low_crossover = cutoff_from_frequency(20., sample_rate * 4);
-        let high_low_crossover = cutoff_from_frequency(65., sample_rate as usize);
-        let low_mid_crossover = cutoff_from_frequency(200., sample_rate as usize);
-        let high_mid_crossover = cutoff_from_frequency(500., sample_rate as usize);
-        let low_high_crossover = cutoff_from_frequency(1000., sample_rate as usize);
-        // let high_high_crossover = cutoff_from_frequency(18000., sample_rate);
+        let high_low_crossover = cutoff_from_frequency(65., sample_rate);
+        let low_mid_crossover = cutoff_from_frequency(100., sample_rate);
+        let high_mid_crossover = cutoff_from_frequency(400., sample_rate);
+        let low_high_crossover = cutoff_from_frequency(800., sample_rate);
+        // the maximum high frequency is given by the nyquist freq = sample_rate /2
+        let high_high_crossover =
+            cutoff_from_frequency(PREVIEW_SAMPLE_RATE as f64 / 2., sample_rate);
         let low_band_filter = lowpass_filter(high_low_crossover, 0.01);
         let lows = convolve(&low_band_filter, &samples);
         let lows = self.smoothing(&lows);
         let lows = self.avg_smoothing_low(&lows);
-        // let lows = self.smoothing(&lows);
-        // let lows = lows.into_iter().map(|s| s as f32).collect_vec();
-        // let lows = low_converter.process_last(&lows).unwrap();
-        let high_band_filter = highpass_filter(low_high_crossover, 0.01);
+        let high_band_filter = bandpass_filter(low_high_crossover, high_high_crossover, 0.01);
         let highs = convolve(&high_band_filter, &samples);
-        // let highs = self.smoothing(&highs);
-        // let highs = self.avg_smoothing_high(&highs);
-        // let highs = self.smoothing(&highs);
-        // let highs = highs.into_iter().map(|s| s as f32).collect_vec();
-        // let highs = high_converter.process_last(&highs).unwrap();
-        // let highs = self.smoothing(&(highs.into_iter().map(|s| (s as f32)).collect()));
+        let highs = self.smoothing(&highs);
+        let highs = self.avg_smoothing_high(&highs);
         let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.01);
         let mids = convolve(&mid_band_filter, &samples[..]);
         let mids = self.smoothing(&mids);
         let mids = self.avg_smoothing_mid(&mids);
-        // let mids = self.avg_smoothing(&mids);
-        // let mids = self.smoothing(&mids);
-        // let mids = mids.into_iter().map(|s| s as f32).collect_vec();
-        // let mids = mid_converter.process_last(&mids).unwrap();
         let zipped = highs
             .into_iter()
             .zip(mids.into_iter())
