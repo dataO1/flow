@@ -37,12 +37,14 @@ impl<'a> LivePreviewWidget<'a> {
         if let Some(player_pos) = self.player_pos {
             for (i, sample) in self
                 .track
-                .live_preview(target_size, 400, player_pos)
+                .live_preview(target_size, 200, player_pos)
                 .into_iter()
                 .take(target_size)
                 .enumerate()
             {
                 let x = (-((target_size / 2) as i32) + i as i32) as f64;
+                let y_lows = sample.lows;
+                let y_lows = (y_lows * (y_max as f32)) as f64;
                 let y = match layer {
                     WaveFormLayer::Lows => sample.lows * 0.8,
                     WaveFormLayer::Mids => sample.mids,
@@ -50,17 +52,38 @@ impl<'a> LivePreviewWidget<'a> {
                 };
                 let y = (y * (y_max as f32)) as f64;
                 let color = match layer {
-                    WaveFormLayer::Lows => Color::Red,
-                    WaveFormLayer::Mids => Color::Green,
+                    WaveFormLayer::Lows => Color::LightRed,
+                    WaveFormLayer::Mids => Color::Gray,
                     WaveFormLayer::Highs => Color::White,
                 };
-                ctx.draw(&Line {
-                    x1: x,
-                    x2: x,
-                    y1: y,
-                    y2: -y,
-                    color,
-                });
+                if let WaveFormLayer::Mids = layer {
+                    // if mids are "embedded" in lows draw the difference only
+                    if y < y_lows {
+                        ctx.draw(&Line {
+                            x1: x,
+                            x2: x,
+                            y1: y.floor(),
+                            y2: -y.floor(),
+                            color,
+                        });
+                    } else {
+                        ctx.draw(&Line {
+                            x1: x,
+                            x2: x,
+                            y1: y,
+                            y2: -y,
+                            color,
+                        });
+                    };
+                } else {
+                    ctx.draw(&Line {
+                        x1: x,
+                        x2: x,
+                        y1: y,
+                        y2: -y,
+                        color,
+                    });
+                }
             }
         }
     }
