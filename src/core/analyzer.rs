@@ -87,12 +87,7 @@ pub struct Analyzer {
     low_moving_avg_filter: SMA,
     mids_moving_avg_filter: SMA,
     highs_moving_avg_filter: SMA,
-}
-
-enum Avg_Filter {
-    Low,
-    Mid,
-    High,
+    peak_intersample_filter: PeakIntersampleFilter,
 }
 
 impl Analyzer {
@@ -139,6 +134,7 @@ impl Analyzer {
             low_moving_avg_filter: SMA::new(10, &0.).unwrap(),
             mids_moving_avg_filter: SMA::new(50, &0.).unwrap(),
             highs_moving_avg_filter: SMA::new(3, &0.).unwrap(),
+            peak_intersample_filter: PeakIntersampleFilter::new(),
         }
     }
 
@@ -305,32 +301,6 @@ impl Analyzer {
             .collect()
     }
 
-    fn smoothing(&self, samples: &[f64]) -> Vec<f32> {
-        let mut peaks = vec![];
-        let mut second_last = 0.;
-        let mut last = 0.;
-        let mut skipped = 0;
-        for s in samples {
-            if *s > 0. && second_last > 0. && last > 0. {
-                //detect peak
-                if second_last < last && *s < last {
-                    for _ in 0..skipped {
-                        peaks.push(last as f32);
-                    }
-                    skipped = 0;
-                }
-            };
-            skipped += 1;
-            second_last = last;
-            last = *s;
-        }
-        let diff = samples.len() - peaks.len();
-        for _ in 0..diff {
-            peaks.push(last as f32);
-        }
-        peaks
-    }
-
     /// convert a buffer of samples into a buffer of preview samples of same lenght
     fn samples_2_preview_samples(
         &mut self,
@@ -350,15 +320,15 @@ impl Analyzer {
             cutoff_from_frequency(PREVIEW_SAMPLE_RATE as f64 / 2., sample_rate);
         let low_band_filter = lowpass_filter(high_low_crossover, 0.01);
         let lows = convolve(&low_band_filter, &samples);
-        let lows = self.smoothing(&lows);
+        let lows = self.peak_intersample_filter.smoothing(&lows);
         let lows = self.avg_smoothing_low(&lows);
         let high_band_filter = bandpass_filter(low_high_crossover, high_high_crossover, 0.01);
         let highs = convolve(&high_band_filter, &samples);
-        let highs = self.smoothing(&highs);
+        let highs = self.peak_intersample_filter.smoothing(&highs);
         let highs = self.avg_smoothing_high(&highs);
         let mid_band_filter = bandpass_filter(low_mid_crossover, high_mid_crossover, 0.01);
         let mids = convolve(&mid_band_filter, &samples[..]);
-        let mids = self.smoothing(&mids);
+        let mids = self.peak_intersample_filter.smoothing(&mids);
         let mids = self.avg_smoothing_mid(&mids);
         let zipped = highs
             .into_iter()
@@ -379,29 +349,61 @@ impl Analyzer {
         preview_samples
     }
 
-    pub fn preview_buffer_apply_filter(
-        buffer: &[PreviewSample],
-        filter: fn(&[f32]) -> Vec<f32>,
-    ) -> Vec<PreviewSample> {
-        let lows: Vec<f32> = buffer.into_iter().map(|s| s.lows).collect();
-        let lows = filter(&lows);
-        let mids: Vec<f32> = buffer.into_iter().map(|s| s.mids).collect();
-        let mids = filter(&mids);
-        let highs: Vec<f32> = buffer.into_iter().map(|s| s.highs).collect();
-        let highs = filter(&highs);
-        let merged = lows
-            .into_iter()
-            .zip(mids.into_iter().zip(highs.into_iter()))
-            .map(|trip| PreviewSample {
-                lows: trip.0,
-                mids: trip.1 .0,
-                highs: trip.1 .1,
-            })
-            .collect_vec();
-        merged
-    }
+    // pub fn preview_buffer_apply_filter(
+    //     buffer: &[PreviewSample],
+    //     filter: fn(&[f32]) -> Vec<f32>,
+    // ) -> Vec<PreviewSample> {
+    //     let lows: Vec<f32> = buffer.into_iter().map(|s| s.lows).collect();
+    //     let lows = filter(&lows);
+    //     let mids: Vec<f32> = buffer.into_iter().map(|s| s.mids).collect();
+    //     let mids = filter(&mids);
+    //     let highs: Vec<f32> = buffer.into_iter().map(|s| s.highs).collect();
+    //     let highs = filter(&highs);
+    //     let merged = lows
+    //         .into_iter()
+    //         .zip(mids.into_iter().zip(highs.into_iter()))
+    //         .map(|trip| PreviewSample {
+    //             lows: trip.0,
+    //             mids: trip.1 .0,
+    //             highs: trip.1 .1,
+    //         })
+    //         .collect_vec();
+    //     merged
+    // }
+}
 
-    pub fn avg_filter(buffer: &[f32]) -> Vec<f32> {
-        vec![]
+pub struct PeakIntersampleFilter {
+    last_peak: f64,
+}
+
+impl PeakIntersampleFilter {
+    pub fn new() -> Self {
+        Self { last_peak: 0.0 }
+    }
+    pub fn smoothing(&mut self, samples: &[f64]) -> Vec<f32> {
+        let mut peaks = vec![];
+        let mut second_last = 0.;
+        let mut last = self.last_peak;
+        let mut skipped = 0;
+        for s in samples {
+            if *s > 0. && second_last > 0. && last > 0. {
+                //detect peak
+                if second_last < last && *s < last {
+                    for _ in 0..skipped {
+                        peaks.push(last as f32);
+                    }
+                    skipped = 0;
+                }
+            };
+            skipped += 1;
+            second_last = last;
+            last = *s;
+        }
+        let diff = samples.len() - peaks.len();
+        for _ in 0..diff {
+            peaks.push(last as f32);
+        }
+        self.last_peak = last;
+        peaks
     }
 }

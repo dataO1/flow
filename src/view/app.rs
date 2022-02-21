@@ -142,12 +142,12 @@ impl App {
                         // skip backwards
                         KeyCode::Char('h') => {
                             player_messages_out
-                                .send(Message::SkipBackward(Time::new(0, 0.01)))
+                                .send(Message::SkipBackward(Time::new(20, 0.)))
                                 .unwrap();
                         }
                         // skip forward
                         KeyCode::Char('l') => player_messages_out
-                            .send(Message::SkipForward(Time::new(0, 0.01)))
+                            .send(Message::SkipForward(Time::new(20, 0.)))
                             .unwrap(),
                         // Toggle Play
                         KeyCode::Char(' ') => {

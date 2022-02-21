@@ -37,7 +37,7 @@ impl<'a> LivePreviewWidget<'a> {
         if let Some(player_pos) = self.player_pos {
             for (i, sample) in self
                 .track
-                .live_preview(target_size, 100, player_pos)
+                .live_preview(target_size, 400, player_pos)
                 .into_iter()
                 .take(target_size)
                 .enumerate()
@@ -91,7 +91,7 @@ impl<'a> Widget for LivePreviewWidget<'a> {
                 });
                 self.draw_waveform(ctx, WaveFormLayer::Lows, target_size, y_max);
                 self.draw_waveform(ctx, WaveFormLayer::Mids, target_size, y_max);
-                self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
+                // self.draw_waveform(ctx, WaveFormLayer::Highs, target_size, y_max);
             });
         canvas.render(area, buf);
     }
