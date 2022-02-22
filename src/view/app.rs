@@ -66,6 +66,8 @@ pub struct App {
     tracks: TrackList,
     /// current player position in number of packets.
     player_position: Arc<Mutex<Option<TimeMarker>>>,
+    /// zoom amount of live preview
+    zoom_level: u32,
 }
 
 impl Default for App {
@@ -75,6 +77,7 @@ impl Default for App {
             latest_event: String::from(""),
             tracks: TrackList::default(),
             active_event_scope: EventScope::FileList,
+            zoom_level: 50,
         }
     }
 }
@@ -131,6 +134,20 @@ impl App {
                 if let KeyModifiers::NONE = key.modifiers {
                     // Events with no modifiers (local)
                     match key.code {
+                        // zoom live preview in
+                        KeyCode::Char('+') => {
+                            let zl = self.zoom_level + 10;
+                            if zl <= 500 {
+                                self.zoom_level = zl;
+                            }
+                        }
+                        // zoom live preview out
+                        KeyCode::Char('-') => {
+                            let zl = self.zoom_level - 10;
+                            if zl >= 50 {
+                                self.zoom_level = zl;
+                            }
+                        }
                         // go up a track
                         KeyCode::Char('j') => {
                             self.tracks.focus_next();
@@ -256,7 +273,7 @@ impl App {
             .split(f.size());
         let player_position = (*self.player_position.lock().unwrap()).clone();
         if let Some(track) = self.tracks.get_loaded() {
-            let live_preview = LivePreviewWidget::new(&track, &player_position);
+            let live_preview = LivePreviewWidget::new(&track, &player_position, self.zoom_level);
             let preview = PreviewWidget::new(&track, &player_position);
 
             f.render_widget(preview, window[1]);

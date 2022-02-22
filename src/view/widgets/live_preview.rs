@@ -13,6 +13,7 @@ use crate::view::model::track::Track;
 pub struct LivePreviewWidget<'a> {
     track: &'a Track,
     player_pos: &'a Option<TimeMarker>,
+    zoom_level: u32,
 }
 
 pub enum WaveFormLayer {
@@ -22,8 +23,12 @@ pub enum WaveFormLayer {
 }
 
 impl<'a> LivePreviewWidget<'a> {
-    pub fn new(track: &'a Track, player_pos: &'a Option<TimeMarker>) -> Self {
-        Self { player_pos, track }
+    pub fn new(track: &'a Track, player_pos: &'a Option<TimeMarker>, zoom_level: u32) -> Self {
+        Self {
+            player_pos,
+            track,
+            zoom_level,
+        }
     }
 
     pub fn draw_waveform(
@@ -36,7 +41,7 @@ impl<'a> LivePreviewWidget<'a> {
         if let Some(player_pos) = self.player_pos {
             for (i, sample) in self
                 .track
-                .live_preview(target_size, 50, player_pos)
+                .live_preview(target_size, self.zoom_level, player_pos)
                 .iter()
                 .take(target_size)
                 .enumerate()
