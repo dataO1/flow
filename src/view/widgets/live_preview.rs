@@ -36,7 +36,7 @@ impl<'a> LivePreviewWidget<'a> {
         if let Some(player_pos) = self.player_pos {
             for (i, sample) in self
                 .track
-                .live_preview(target_size, 200, player_pos)
+                .live_preview(target_size, 50, player_pos)
                 .iter()
                 .take(target_size)
                 .enumerate()

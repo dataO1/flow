@@ -3,6 +3,7 @@ use crate::view::model;
 use samplerate::{ConverterType, Samplerate};
 use std::{
     iter::Sum,
+    ops::Range,
     sync::Arc,
     thread::{spawn, JoinHandle},
 };
@@ -20,7 +21,7 @@ use symphonia::core::{
     errors::Error,
     formats::{FormatOptions, FormatReader},
     io::MediaSourceStream,
-    meta::MetadataOptions,
+    meta::{MetadataOptions, Tag},
     probe::Hint,
 };
 
@@ -105,7 +106,7 @@ impl Analyzer {
                             .analyzer_event_out
                             .send(analyzer::Event::DoneAnalyzing(file_path))
                             .unwrap();
-                        analyzer.analyze_bpm();
+                        analyzer.analyze_bpm(150..200);
                         break;
                     }
                 }
@@ -114,10 +115,18 @@ impl Analyzer {
     }
 
     fn new(file_path: String, analyzer_event_out: Sender<analyzer::Event>) -> Self {
-        let reader = Analyzer::get_reader(file_path.clone());
-        let codec_params = reader.default_track().unwrap().clone().codec_params;
-        let decoder = Analyzer::get_decoder(&codec_params).unwrap();
-        let track = Arc::new(model::track::Track::new(file_path, codec_params.clone()));
+        let reader_and_tags = Analyzer::get_reader(file_path.clone());
+        let mut reader = reader_and_tags.0;
+        let tags = reader_and_tags.1;
+        let default_track = reader.default_track().unwrap().clone();
+        let decoder = Analyzer::get_decoder(&default_track.codec_params).unwrap();
+        let track = Arc::new(model::track::Track::new(
+            file_path,
+            default_track.codec_params.clone(),
+        ));
+        if let Some(tags) = tags{
+            track.meta.write().unwrap().parse_from(tags);
+        }
         analyzer_event_out
             .send(Event::NewTrack(Arc::clone(&track)))
             .unwrap();
@@ -132,7 +141,7 @@ impl Analyzer {
             mids_moving_avg_filter: SMA::new(50, &0.).unwrap(),
             highs_moving_avg_filter: SMA::new(3, &0.).unwrap(),
             peak_intersample_filter: PeakIntersampleFilter::new(),
-            codec_params,
+            codec_params: default_track.codec_params,
         }
     }
 
@@ -164,17 +173,22 @@ impl Analyzer {
     }
 
     /// creates reader from a given path
-    fn get_reader(path: String) -> Box<dyn FormatReader> {
+    fn get_reader(path: String) -> (Box<dyn FormatReader>, Option<Vec<Tag>>) {
         let src = std::fs::File::open(path).expect("failed to open media");
         let mss = MediaSourceStream::new(Box::new(src), Default::default());
         let mut hint = Hint::new();
         hint.with_extension("mp3");
         let meta_opts: MetadataOptions = Default::default();
         let fmt_opts: FormatOptions = Default::default();
-        let probed = symphonia::default::get_probe()
+        let mut probed = symphonia::default::get_probe()
             .format(&hint, mss, &fmt_opts, &meta_opts)
             .expect("unsupported format");
-        probed.format
+        let mut tags = probed
+            .metadata
+            .get()
+            .map(|meta| meta.current().map(|x| x.tags().to_vec()))
+            .flatten();
+        (probed.format, tags)
     }
 
     /// creates decoder from codec parameters
@@ -223,7 +237,7 @@ impl Analyzer {
         }
     }
 
-    fn analyze_bpm(&mut self) {
+    fn analyze_bpm(&mut self, bpm_range: Range<usize>) {
         let samples = self
             .sample_buf
             // .to_vec()
@@ -231,8 +245,8 @@ impl Analyzer {
             .map(|s| *s as f64)
             .collect_vec();
         let sample_rate = self.track.codec_params.sample_rate.unwrap();
-        let low_crossover = cutoff_from_frequency(1000., sample_rate as usize);
-        let high_crossover = cutoff_from_frequency(8000., sample_rate as usize);
+        let low_crossover = cutoff_from_frequency(200., sample_rate as usize);
+        let high_crossover = cutoff_from_frequency(400., sample_rate as usize);
         let low_band_filter = bandpass_filter(low_crossover, high_crossover, 0.01);
         // let samples = convolve(&low_band_filter, &samples);
         // let samples: Vec<f32> = samples.iter().map(|s| *s as f32).collect();
@@ -240,7 +254,7 @@ impl Analyzer {
         let buf_s = 2 << 14;
         let hop_s = 256;
         let tempo = std::panic::catch_unwind(|| {
-            aubio::Tempo::new(aubio::OnsetMode::Hfc, buf_s, hop_s, sample_rate).unwrap()
+            aubio::Tempo::new(aubio::OnsetMode::Phase, buf_s, hop_s, sample_rate).unwrap()
         });
         match tempo {
             Ok(mut tempo) => {
@@ -253,7 +267,12 @@ impl Analyzer {
                         Err(_) => {}
                     };
                 }
-                let t = tempo.get_bpm();
+                let t = tempo.get_bpm().floor() as usize;
+                // for _ in (0..5) {
+                //     if !bpm_range.contains(&t) {
+                //         self.analyze_bpm(bpm_range.clone(), hop_s << 2);
+                //     };
+                // }
                 self.track.change_bpm(t as u32);
                 // println!("{}", t);
             }

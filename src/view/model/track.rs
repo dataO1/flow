@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::sync::{Mutex, RwLock};
 use symphonia::core::formats::Track as SymphoniaTrack;
+use symphonia::core::meta::{Metadata, StandardTagKey, Tag, Value};
 
 use itertools::Itertools;
 use symphonia::core::codecs::CodecParameters;
@@ -195,10 +196,46 @@ impl Hash for Track {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct TrackMeta {
+    pub artist: String,
+    pub title: String,
+    pub album: String,
     pub bpm: u32,
 }
 impl Default for TrackMeta {
     fn default() -> Self {
-        Self { bpm: 0 }
+        Self {
+            bpm: 0,
+            artist: String::from(""),
+            title: String::from(""),
+            album: String::from(""),
+        }
+    }
+}
+
+impl TrackMeta {
+    pub fn parse_from(&mut self, tags: Vec<Tag>) {
+        for tag in tags {
+            // println!("{}", tag);
+            if let Some(std_key) = tag.std_key {
+                match std_key {
+                    StandardTagKey::TrackTitle => {
+                        if let Value::String(title) = tag.value {
+                            self.title = title
+                        };
+                    }
+                    StandardTagKey::Artist => {
+                        if let Value::String(artist) = tag.value {
+                            self.artist = artist;
+                        }
+                    }
+                    StandardTagKey::Bpm => {
+                        if let Value::UnsignedInt(bpm) = tag.value {
+                            self.bpm = bpm as u32;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        }
     }
 }
