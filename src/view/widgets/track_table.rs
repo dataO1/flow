@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexSet;
-use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, LineGauge, Row, Table, Widget}};
+use tui::{layout::Constraint, style::{Color, Modifier, Style}, widgets::{Block, Borders, Cell, Row, Table, Widget}};
 
 use crate::view::model::track::Track;
 
@@ -27,21 +27,22 @@ impl<'a> TrackTableWidget<'a> {
         //
         // if progress could be computed return it in formatted form, else return string "NaN"
         let progress_string = track.progress().map_or(String::from("Nan"),|progress|{ format!("{}%", progress) });
+        let bpm = format!("{}",track.meta.read().unwrap().bpm);
         let style = if focused {Style::default().fg(Color::Black).bg(Color::DarkGray)}else {Style::default()};
         Row::new(vec![Cell::from(track.file_name.to_string())
-                 , Cell::from(progress_string)]).style(style)
+                 , Cell::from(progress_string), Cell::from(bpm)]).style(style)
     }
 
     fn get_header(&self) -> Row {
         // || filename || analyzed_percentage
         let style = Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
-        Row::new(vec!["File Name", "Analysis"]).bottom_margin(0).style(style).bottom_margin(1)
+        Row::new(vec!["File Name", "Analysis", "BPM"]).bottom_margin(0).style(style).bottom_margin(1)
     }
 }
 impl<'a> Widget for TrackTableWidget<'a> {
     fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
         let header = self.get_header();
-        let num_colums = 2 as usize;
+        let num_colums = 3 as usize;
         let auto_widths = vec![Constraint::Percentage(100/num_colums as u16);num_colums];
         let rows: Vec<Row> = self
             .tracks

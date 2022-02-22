@@ -154,7 +154,20 @@ impl App {
                             player_messages_out.send(Message::TogglePlay).unwrap();
                             self.latest_event = String::from("TogglePlay");
                         }
+                        // press cue
                         KeyCode::Char('c') => player_messages_out.send(Message::Cue).unwrap(),
+                        // new cue marker
+                        KeyCode::Char('m') => {
+                            let player_pos = &(*self.player_position.lock().unwrap());
+                            if let (Some(track), Some(tm)) = (self.tracks.get_loaded(), player_pos)
+                            {
+                                let cue_marker = TimeMarker::from_ts(
+                                    tm.get_timestamp(),
+                                    track.codec_params.clone(),
+                                );
+                                track.add_mem_cue(cue_marker);
+                            }
+                        }
                         // Load Track
                         KeyCode::Enter => {
                             if self.active_event_scope != EventScope::FileList {

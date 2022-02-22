@@ -20,6 +20,7 @@ samplerate = "0.2.4"
 synthrs = {git = "https://github.com/gyng/synthrs"}
 moving_avg = "0.2.0"
 yata = { version = "0.6.0"}
+bounded-vec-deque = "0.1.1"
 
 
 [target.'cfg(target_os = "linux")'.dependencies]

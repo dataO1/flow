@@ -4,10 +4,9 @@ use tui::style::Color;
 use tui::widgets::canvas::Context;
 use tui::widgets::{
     canvas::{Canvas, Line},
-    Block, Borders, Widget,
+    Block, Widget,
 };
 
-use crate::core::analyzer::PreviewSample;
 use crate::core::player::TimeMarker;
 use crate::view::model::track::Track;
 
@@ -43,8 +42,6 @@ impl<'a> LivePreviewWidget<'a> {
                 .enumerate()
             {
                 let x = (-((target_size / 2) as i32) + i as i32) as f64;
-                let y_lows = sample.lows;
-                let y_lows = (y_lows * (y_max as f32)) as f64;
                 let y = match layer {
                     WaveFormLayer::Lows => sample.lows,
                     WaveFormLayer::Mids => sample.mids,

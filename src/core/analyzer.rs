@@ -2,14 +2,12 @@ use crate::core::analyzer;
 use crate::view::model;
 use samplerate::{ConverterType, Samplerate};
 use std::{
-    iter::{Map, Sum},
+    iter::Sum,
     sync::Arc,
     thread::{spawn, JoinHandle},
 };
-use synthrs::filter::{
-    bandpass_filter, convolve, cutoff_from_frequency, highpass_filter, lowpass_filter,
-};
-use yata::methods::{Integral, RMA, SMA, SMM, WMA};
+use synthrs::filter::{bandpass_filter, convolve, cutoff_from_frequency, lowpass_filter};
+use yata::methods::SMA;
 use yata::prelude::*;
 
 use itertools::Itertools;
@@ -73,6 +71,8 @@ pub struct Analyzer {
     analyzer_event_out: Sender<Event>,
     /// The track to be analyzed
     track: Arc<model::track::Track>,
+    /// Codec Parameters
+    codec_params: CodecParameters,
     /// FormatReader
     reader: Box<dyn FormatReader>,
     /// Decoder
@@ -81,8 +81,6 @@ pub struct Analyzer {
     sample_buf: Vec<f32>,
     /// Local Cache for downsampled samples
     preview_buf: Vec<f32>,
-    /// coded parameters of decoded track
-    codec_params: CodecParameters,
     /// a moving average filter over the analyzed data
     low_moving_avg_filter: SMA,
     mids_moving_avg_filter: SMA,
@@ -130,11 +128,11 @@ impl Analyzer {
             preview_buf: vec![],
             track,
             analyzer_event_out,
-            codec_params,
             low_moving_avg_filter: SMA::new(10, &0.).unwrap(),
             mids_moving_avg_filter: SMA::new(50, &0.).unwrap(),
             highs_moving_avg_filter: SMA::new(3, &0.).unwrap(),
             peak_intersample_filter: PeakIntersampleFilter::new(),
+            codec_params,
         }
     }
 
@@ -226,33 +224,37 @@ impl Analyzer {
     }
 
     fn analyze_bpm(&mut self) {
+        let samples = self
+            .sample_buf
+            // .to_vec()
+            .iter()
+            .map(|s| *s as f64)
+            .collect_vec();
+        let sample_rate = self.track.codec_params.sample_rate.unwrap();
+        let low_crossover = cutoff_from_frequency(1000., sample_rate as usize);
+        let high_crossover = cutoff_from_frequency(8000., sample_rate as usize);
+        let low_band_filter = bandpass_filter(low_crossover, high_crossover, 0.01);
+        // let samples = convolve(&low_band_filter, &samples);
+        // let samples: Vec<f32> = samples.iter().map(|s| *s as f32).collect();
         // analyze bpm
-        let hop_s = 512;
-        let buf_s = 1024;
-        let mut tempo = std::panic::catch_unwind(|| {
-            aubio::Tempo::new(
-                aubio::OnsetMode::Hfc,
-                buf_s,
-                hop_s,
-                self.track.codec_params.sample_rate.unwrap(),
-            )
-            .unwrap()
+        let buf_s = 2 << 14;
+        let hop_s = 256;
+        let tempo = std::panic::catch_unwind(|| {
+            aubio::Tempo::new(aubio::OnsetMode::Hfc, buf_s, hop_s, sample_rate).unwrap()
         });
         match tempo {
             Ok(mut tempo) => {
-                self.sample_buf
-                    .to_vec()
-                    .into_iter()
-                    .chunks(buf_s)
-                    .into_iter()
-                    .map(|chunk| {
-                        let chunk: Vec<f32> = chunk.into_iter().collect();
-                        match tempo.do_result(chunk) {
-                            Ok(_) => {}
-                            Err(_) => {}
-                        };
-                    });
+                for chunk in samples.into_iter().chunks(buf_s).into_iter() {
+                    let chunk: Vec<f64> = chunk.collect();
+                    // let chunk = convolve(&low_band_filter, &chunk);
+                    let chunk = chunk.iter().map(|s| *s as f32).collect_vec();
+                    match tempo.do_result(chunk) {
+                        Ok(_) => {}
+                        Err(_) => {}
+                    };
+                }
                 let t = tempo.get_bpm();
+                self.track.change_bpm(t as u32);
                 // println!("{}", t);
             }
             Err(err) => {

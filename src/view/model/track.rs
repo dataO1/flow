@@ -1,12 +1,14 @@
+use bounded_vec_deque::BoundedVecDeque;
 use std::hash::Hash;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
+use symphonia::core::formats::Track as SymphoniaTrack;
 
 use itertools::Itertools;
 use symphonia::core::codecs::CodecParameters;
 
 use crate::core::{
-    analyzer::{Analyzer, PreviewSample, PREVIEW_SAMPLE_RATE},
+    analyzer::{PreviewSample, PREVIEW_SAMPLE_RATE},
     player::TimeMarker,
 };
 
@@ -17,7 +19,7 @@ use crate::core::{
 #[derive(Debug)]
 pub struct Track {
     /// track meta data
-    pub meta: TrackMeta,
+    pub meta: RwLock<TrackMeta>,
     /// the file path
     pub file_path: String,
     /// the file name
@@ -26,18 +28,31 @@ pub struct Track {
     pub codec_params: CodecParameters,
     /// downsampled version of decoded frames for preview
     preview_buffer: RwLock<Vec<PreviewSample>>,
+    /// list of memory cue markers
+    pub mem_cues: Mutex<BoundedVecDeque<TimeMarker>>,
 }
 
 impl Track {
     pub fn new(file_path: String, codec_params: CodecParameters) -> Self {
         let file_name = String::from(Path::new(&file_path).file_name().unwrap().to_str().unwrap());
         Self {
-            meta: TrackMeta::default(),
+            meta: RwLock::new(TrackMeta::default()),
             preview_buffer: RwLock::new(vec![]),
             file_path,
             file_name,
+            mem_cues: Mutex::new(BoundedVecDeque::new(10)),
             codec_params,
         }
+    }
+
+    pub fn change_bpm(&self, bpm: u32) {
+        let mut meta = self.meta.write().unwrap();
+        meta.bpm = bpm;
+    }
+
+    /// add memory cue  
+    pub fn add_mem_cue(&self, tm: TimeMarker) {
+        self.mem_cues.lock().unwrap().push_back(tm);
     }
 
     /// append preview samples to preview buffer
@@ -179,9 +194,11 @@ impl Hash for Track {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct TrackMeta {}
+pub struct TrackMeta {
+    pub bpm: u32,
+}
 impl Default for TrackMeta {
     fn default() -> Self {
-        Self {}
+        Self { bpm: 0 }
     }
 }

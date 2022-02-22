@@ -1,17 +1,12 @@
-use std::sync::{Arc, Mutex};
-
 use tui::{
     style::Color,
     widgets::{
         canvas::{Canvas, Line},
-        Block, Borders, Widget,
+        Block, Widget,
     },
 };
 
-use crate::{
-    core::{analyzer::PREVIEW_SAMPLE_RATE, player::TimeMarker},
-    view::model::track::Track,
-};
+use crate::{core::player::TimeMarker, view::model::track::Track};
 
 pub struct PreviewWidget<'a> {
     track: &'a Track,
@@ -61,8 +56,8 @@ impl<'a> Widget for PreviewWidget<'a> {
                 ctx.layer();
 
                 if let Some(player_position) = self.player_position {
-                    let mut progress = player_position.get_progress();
-                    let x = progress * x_max as f64 * 2.0;
+                    let relative_pos = player_position.get_progress();
+                    let x = relative_pos * x_max as f64 * 2.0;
                     let x = x.floor() as isize - x_max as isize;
                     ctx.draw(&Line {
                         x1: x as f64,
@@ -71,6 +66,18 @@ impl<'a> Widget for PreviewWidget<'a> {
                         y2: -(y_max as f64),
                         color: Color::Red,
                     })
+                }
+                for marker in &(*self.track.mem_cues.lock().unwrap()) {
+                    let relative_pos = marker.get_progress();
+                    let x = relative_pos * x_max as f64 * 2.0;
+                    let x = x.floor() as isize - x_max as isize;
+                    ctx.draw(&Line {
+                        x1: x as f64,
+                        x2: x as f64,
+                        y1: y_max as f64,
+                        y2: -(y_max as f64),
+                        color: Color::Green,
+                    });
                 }
             });
         canvas.render(area, buf);

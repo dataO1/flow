@@ -9,14 +9,14 @@ use log::warn;
 use std::sync::mpsc::{Receiver, Sender};
 use symphonia::core::audio::RawSampleBuffer;
 use symphonia::core::audio::{Channels, SignalSpec};
-use symphonia::core::codecs::Decoder;
 use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::{CodecParameters, Decoder};
 use symphonia::core::formats::FormatReader;
 use symphonia::core::formats::{FormatOptions, Track};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use symphonia::core::units::{Time, TimeBase, TimeStamp};
+use symphonia::core::units::{Time, TimeStamp};
 
 pub enum Message {
     /// Load a new file
@@ -45,12 +45,12 @@ pub enum PlayerState {
 }
 
 /// struct for converting between different formats for marking a specific time in a track
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TimeMarker {
     /// everything is stored in timestamp format
     ts: TimeStamp,
-    /// the tracks timebase, needed for conversion to and from TimeStamp format
-    track: Track,
+    /// codec parameters
+    codec_params: CodecParameters,
 }
 
 impl PartialEq for TimeMarker {
@@ -65,21 +65,23 @@ enum SkipDirection {
 }
 
 impl TimeMarker {
-    pub fn new(track: Track) -> Self {
-        Self { track, ts: 0 }
+    pub fn new(codec_params: CodecParameters) -> Self {
+        Self {
+            codec_params,
+            ts: 0,
+        }
+    }
+
+    pub fn from_ts(ts: TimeStamp, codec_params: CodecParameters) -> Self {
+        Self { ts, codec_params }
     }
 
     fn skip(&mut self, offset: Time, direction: SkipDirection) {
-        let mut current = self
-            .track
-            .codec_params
-            .time_base
-            .unwrap()
-            .calc_time(self.ts);
+        let current = self.codec_params.time_base.unwrap().calc_time(self.ts);
         let new_time = match direction {
             SkipDirection::Forward => {
-                let mut seconds = (current.seconds + offset.seconds);
-                let mut frac = (current.frac + offset.frac);
+                let mut seconds = current.seconds + offset.seconds;
+                let mut frac = current.frac + offset.frac;
                 // wrap fracs to seconds
                 if frac >= 1. {
                     seconds += 1;
@@ -89,8 +91,8 @@ impl TimeMarker {
             }
             SkipDirection::Backward => {
                 if offset.seconds <= current.seconds {
-                    let mut seconds = (current.seconds - offset.seconds);
-                    let mut frac = (current.frac - offset.frac);
+                    let mut seconds = current.seconds - offset.seconds;
+                    let mut frac = current.frac - offset.frac;
                     // wrap fracs to seconds
                     if frac < 0. {
                         if seconds > 0 {
@@ -109,7 +111,6 @@ impl TimeMarker {
             }
         };
         let new_ts = self
-            .track
             .codec_params
             .time_base
             .unwrap()
@@ -126,18 +127,13 @@ impl TimeMarker {
     }
 
     pub fn get_time_in_seconds(&self) -> f64 {
-        let time = self
-            .track
-            .codec_params
-            .time_base
-            .unwrap()
-            .calc_time(self.ts);
+        let time = self.codec_params.time_base.unwrap().calc_time(self.ts);
         (time.seconds as f64) + (time.frac)
     }
 
     pub fn get_progress(&self) -> f64 {
-        let t_dur = self.track.codec_params.n_frames.unwrap() as f64
-            / self.track.codec_params.sample_rate.unwrap() as f64;
+        let t_dur = self.codec_params.n_frames.unwrap() as f64
+            / self.codec_params.sample_rate.unwrap() as f64;
         self.get_time_in_seconds() / t_dur
     }
 }
@@ -197,7 +193,7 @@ impl Player {
 
     fn event_loop(
         &mut self,
-        mut player_message_in: Receiver<Message>,
+        player_message_in: Receiver<Message>,
         player_event_out: Sender<player::Event>,
     ) {
         while self.state != PlayerState::Closed {
@@ -244,7 +240,8 @@ impl Player {
         self.init_output();
         self.state = PlayerState::Paused;
         if let Some(track) = &self.track {
-            *self.position_marker.lock().unwrap() = Some(TimeMarker::new(track.clone()));
+            *self.position_marker.lock().unwrap() =
+                Some(TimeMarker::new(track.codec_params.clone()));
             self.cue_point_marker = (*self.position_marker.lock().unwrap()).clone();
         }
     }
@@ -264,7 +261,6 @@ impl Player {
             if let (Some(track), Some(reader), Some(cue)) =
                 (&self.track, &mut self.reader, &self.cue_point_marker)
             {
-                let sample_rate = track.codec_params.sample_rate.unwrap();
                 *self.position_marker.lock().unwrap() = self.cue_point_marker.clone();
                 reader.seek(
                     symphonia::core::formats::SeekMode::Accurate,
@@ -324,13 +320,8 @@ impl Player {
     }
 
     fn play(&mut self) -> Result<(), symphonia::core::errors::Error> {
-        match (
-            &mut self.reader,
-            &mut self.decoder,
-            &mut self.output,
-            &self.track,
-        ) {
-            (Some(reader), Some(decoder), Some(out), Some(track)) => {
+        match (&mut self.reader, &mut self.decoder, &mut self.output) {
+            (Some(reader), Some(decoder), Some(out)) => {
                 let packet = reader.next_packet()?;
                 if let Some(pos) = &mut (*self.position_marker.lock().unwrap()) {
                     pos.go_to_timestamp(packet.ts());
