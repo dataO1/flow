@@ -37,7 +37,7 @@ impl<'a> LivePreviewWidget<'a> {
             for (i, sample) in self
                 .track
                 .live_preview(target_size, 200, player_pos)
-                .into_iter()
+                .iter()
                 .take(target_size)
                 .enumerate()
             {

@@ -34,11 +34,7 @@ impl<'a> Widget for PreviewWidget<'a> {
             .y_bounds([-(y_max as f64), y_max as f64])
             .paint(|ctx| {
                 //
-                for (i, sample) in preview_buffer
-                    .into_iter()
-                    .take((x_max * 2) as usize)
-                    .enumerate()
-                {
+                for (i, sample) in preview_buffer.iter().take((x_max * 2) as usize).enumerate() {
                     //
                     let x = (-(x_max as i16) + i as i16) as f64;
                     let y = (sample.lows * (y_max as f32)) as f64;

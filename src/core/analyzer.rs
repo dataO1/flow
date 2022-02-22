@@ -266,7 +266,7 @@ impl Analyzer {
     fn sum_to_mono(&mut self, samples: &[f32]) -> Vec<f32> {
         let num_channels = self.track.codec_params.channels.unwrap().count();
         samples
-            .into_iter()
+            .iter()
             .chunks(num_channels)
             .into_iter()
             .map(|chunk| chunk.into_iter().sum::<f32>() / num_channels as f32)
@@ -275,7 +275,7 @@ impl Analyzer {
 
     fn avg_smoothing_low(&mut self, samples: &[f32]) -> Vec<f32> {
         samples
-            .into_iter()
+            .iter()
             .map(move |s| {
                 let avg = self.low_moving_avg_filter.next(&(*s as f64));
                 avg as f32
@@ -285,7 +285,7 @@ impl Analyzer {
 
     fn avg_smoothing_mid(&mut self, samples: &[f32]) -> Vec<f32> {
         samples
-            .into_iter()
+            .iter()
             .map(|s| {
                 let avg = self.mids_moving_avg_filter.next(&(*s as f64));
                 avg as f32
@@ -295,7 +295,7 @@ impl Analyzer {
 
     fn avg_smoothing_high(&mut self, samples: &[f32]) -> Vec<f32> {
         samples
-            .into_iter()
+            .iter()
             .map(|s| {
                 let avg = self.highs_moving_avg_filter.next(&(*s as f64));
                 avg as f32
@@ -310,7 +310,7 @@ impl Analyzer {
         sample_rate: usize,
     ) -> Vec<PreviewSample> {
         // there are now 441 samples per second
-        let samples = samples.into_iter().map(|s| *s as f64).collect_vec();
+        let samples = samples.iter().map(|s| *s as f64).collect_vec();
         // let sample_rate = 44100 / 2;
         // let low_low_crossover = cutoff_from_frequency(20., sample_rate * 4);
         let high_low_crossover = cutoff_from_frequency(65., sample_rate);
@@ -333,15 +333,15 @@ impl Analyzer {
         let mids = self.peak_intersample_filter.smoothing(&mids);
         let mids = self.avg_smoothing_mid(&mids);
         let zipped = highs
-            .into_iter()
-            .zip(mids.into_iter())
-            .zip(lows.into_iter())
+            .iter()
+            .zip(mids.iter())
+            .zip(lows.iter())
             .take(samples.len());
         let preview_samples = zipped
             .map(|x| {
-                let lows = x.1 as f32;
-                let highs = x.0 .0 as f32;
-                let mids = x.0 .1 as f32;
+                let lows = *x.1 as f32;
+                let highs = *x.0 .0 as f32;
+                let mids = *x.0 .1 as f32;
                 let preview_sample = PreviewSample { lows, mids, highs };
                 // println!("{:#?}", preview_sample);
                 preview_sample
@@ -350,28 +350,6 @@ impl Analyzer {
         // assert![preview_samples.len() == samples.len()];
         preview_samples
     }
-
-    // pub fn preview_buffer_apply_filter(
-    //     buffer: &[PreviewSample],
-    //     filter: fn(&[f32]) -> Vec<f32>,
-    // ) -> Vec<PreviewSample> {
-    //     let lows: Vec<f32> = buffer.into_iter().map(|s| s.lows).collect();
-    //     let lows = filter(&lows);
-    //     let mids: Vec<f32> = buffer.into_iter().map(|s| s.mids).collect();
-    //     let mids = filter(&mids);
-    //     let highs: Vec<f32> = buffer.into_iter().map(|s| s.highs).collect();
-    //     let highs = filter(&highs);
-    //     let merged = lows
-    //         .into_iter()
-    //         .zip(mids.into_iter().zip(highs.into_iter()))
-    //         .map(|trip| PreviewSample {
-    //             lows: trip.0,
-    //             mids: trip.1 .0,
-    //             highs: trip.1 .1,
-    //         })
-    //         .collect_vec();
-    //     merged
-    // }
 }
 
 //------------------------------------------------------------------//

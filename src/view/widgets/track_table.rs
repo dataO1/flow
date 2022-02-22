@@ -47,7 +47,7 @@ impl<'a> Widget for TrackTableWidget<'a> {
         let rows: Vec<Row> = self
             .tracks
             .values()
-            .into_iter()
+            .iter()
             .map(|track| {
                 let focused = self.tracks.get_focused().map(|f| f == *track).unwrap_or(false);
                 self.get_row(&track, focused)

@@ -112,11 +112,11 @@ impl Track {
             let diff = diff.abs() as usize;
             let mut padding: Vec<PreviewSample> =
                 vec![0.0 as f32; diff * conversion_factor.floor() as usize]
-                    .into_iter()
+                    .iter()
                     .map(|s| PreviewSample {
-                        mids: s,
-                        lows: s,
-                        highs: s,
+                        mids: *s,
+                        lows: *s,
+                        highs: *s,
                     })
                     .collect();
             if preview_buffer.len() > 0 {
