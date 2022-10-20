@@ -11,20 +11,19 @@
       {
         devShell = with pkgs; pkgs.mkShell {
 
-          buildInputs = [
+          nativeBuildInputs = [
             cargo
             # wasm-pack
+            # cargo-web
             rustc
             rustfmt
             rustPackages.clippy
-            # cargo-web
-            alsa-lib
             pkg-config
+          ];
+          buildInputs = [
+            alsa-lib
             libpulseaudio
-            cmake
           ];
         };
       });
-
 }
-

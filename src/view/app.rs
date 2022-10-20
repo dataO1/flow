@@ -101,8 +101,10 @@ impl App {
             player_messages_in,
             player_events_out,
         );
-        // list tracks TODO: read directory for files
-        let files = self.scan_dir(Path::new("/home/data01/Music/")).unwrap();
+        // list tracks
+        let files = self
+            .scan_dir(Path::new("/home/data01/Music/test/"))
+            .unwrap();
         // spawn analyzers
         for file in files {
             Analyzer::spawn(file, analyzer_event_out.clone());
